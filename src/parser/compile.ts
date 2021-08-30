@@ -3,7 +3,7 @@ import ts from "typescript";
 import {join, dirname, relative} from "path";
 import { parse as ParseModelFrom } from "./parser";
 import { PACKAGE_NAME } from "@src/config";
-import { printTree } from "@src/utils/console-print";
+// import { printTree } from "@src/utils/console-print";
 import { format } from "@src/formater/formater";
 import { info } from "@src/utils/log";
 import { toGraphQL } from "@src/graphql/compiler";

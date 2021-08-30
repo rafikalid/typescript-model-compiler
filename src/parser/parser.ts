@@ -1,8 +1,7 @@
 import { Visitor } from "@src/utils/visitor";
 import Glob from "glob";
 import ts from "typescript";
-import { AllNodes, AssertOptions, BasicScalar, Enum, EnumMember, InputField, List, MethodDescriptor, ModelKind, Node, ObjectLiteral, OutputField, Param, PlainObject, Reference, Scalar, Union } from "./model";
-import { DEFAULT_SCALARS } from "./types";
+import { AllNodes, AssertOptions, BasicScalar, Enum, EnumMember, InputField, List, MethodDescriptor, ModelKind, Node, ObjectLiteral, OutputField, Param, PlainObject, Reference, Scalar, Union, DEFAULT_SCALARS } from "tt-model";
 import JSON5 from 'json5';
 import { info, warn } from "@src/utils/log";
 import { _errorFile } from "@src/utils/error";

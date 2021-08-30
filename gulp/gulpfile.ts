@@ -6,7 +6,8 @@ import {typescriptCompile} from './typescript.js'
 const {watch, series}= Gulp;
 
 const argv= process.argv;
-const doWatch= !argv.includes('--nowatch');
+const isProd= argv.includes('--prod');
+const doWatch= !isProd && !argv.includes('--nowatch');
 
 /** Watch modified files */
 function watchCb(cb: Function){

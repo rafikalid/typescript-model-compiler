@@ -1,4 +1,4 @@
-import type { AssertOptions, FieldType } from "@src/parser/model";
+import type { AssertOptions, FieldType } from "tt-model";
 import ts from "typescript";
 
 /**

@@ -2459,6 +2459,19 @@ to-through@^2.0.0:
   dependencies:
     through2 "^2.0.3"
 
+tt-model@^0.0.11:
+  version "0.0.11"
+  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.11.tgz#33a3ee43fd39370cb30b736312d0ec743fa3b0ba"
+  integrity sha512-wcm/6iUM0zzRgIojeZVkzfhwSsQ6BjVCBJwy9iwlNtd5cfCGxPHtwNDiGM5JzjwhWSxhdzDZOMSDptU6Ch4gtA==
+  dependencies:
+    chalk "^4.1.2"
+    glob "^7.1.7"
+    graphql "^15.5.1"
+    json5 "^2.2.0"
+    through2 "^4.0.2"
+    vinyl "^2.2.1"
+    yarn "^1.22.10"
+
 type@^1.0.1:
   version "1.2.0"
   resolved "https://registry.yarnpkg.com/type/-/type-1.2.0.tgz#848dd7698dafa3e54a6c479e759c4bc3f18847a0"
@@ -2680,3 +2693,8 @@ yargs@^7.1.0:
     which-module "^1.0.0"
     y18n "^3.2.1"
     yargs-parser "^5.0.1"
+
+yarn@^1.22.10:
+  version "1.22.11"
+  resolved "https://registry.yarnpkg.com/yarn/-/yarn-1.22.11.tgz#d0104043e7349046e0e2aec977c24be106925ed6"
+  integrity sha512-AWje4bzqO9RUn3sdnM5N8n4ZJ0BqCc/kqFJvpOI5/EVkINXui0yuvU7NDCEF//+WaxHuNay2uOHxA4+tq1P3cg==

@@ -1,4 +1,4 @@
-import { BasicScalar, Enum, InputField, ModelKind, OutputField, Scalar, Union, _Node } from "../parser/model";
+import { BasicScalar, Enum, InputField, ModelKind, OutputField, Scalar, Union, _Node } from "tt-model";
 
 /** Formated node */
 export type FormatedInputNode=	FormatedInputObject | Enum | Union | Scalar | BasicScalar;

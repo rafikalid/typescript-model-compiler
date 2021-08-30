@@ -1,6 +1,6 @@
 import { FormatReponse } from "@src/formater/formater";
 import { formatedInputField, FormatedInputNode, FormatedInputObject, formatedOutputField, FormatedOutputNode, FormatedOutputObject } from "@src/formater/formater-model";
-import { FieldType, InputField, List, MethodDescriptor, ModelKind, Param, Reference, Union } from "@src/parser/model";
+import { FieldType, InputField, List, MethodDescriptor, ModelKind, Param, Reference, Union } from "tt-model";
 import { GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig } from "graphql";
 import ts from "typescript";
 import {relative} from 'path';

@@ -1,5 +1,5 @@
 import { FormatedInputNode, FormatedInputObject, FormatedOutputNode, FormatedOutputObject } from "./formater-model";
-import { Field, FieldType, InputField, List, ModelKind, Node, OutputField, Param, PlainObject, Reference } from "../parser/model";
+import { Field, FieldType, InputField, List, ModelKind, Node, OutputField, Param, PlainObject, Reference } from "tt-model";
 import ts from "typescript";
 import { warn } from "@src/utils/log";
 
