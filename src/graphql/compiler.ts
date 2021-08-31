@@ -446,24 +446,6 @@ export function toGraphQL(root: FormatReponse, f: ts.NodeFactory, pretty: boolea
 		f.createImportDeclaration(undefined, undefined, f.createImportClause(
 			false, undefined, f.createNamedImports(ttImportsF)), f.createStringLiteral('tt-model'))
 	];
-	// Add other imports
-	var importIt= srcImports.entries();
-	while(true){
-		let n= importIt.next();
-		if(n.done) break;
-		let [filename, mp]= n.value;
-		let sbIt= mp.entries();
-		let specifiers: ts.ImportSpecifier[]= [];
-		while(true){
-			let n2= sbIt.next();
-			if(n2.done) break;
-			let [classname, tmpVar]= n2.value;
-			specifiers.push( f.createImportSpecifier(f.createIdentifier(classname), tmpVar) );
-		}
-		// imports
-		imports.push(f.createImportDeclaration(undefined, undefined, f.createImportClause(
-			false, undefined, f.createNamedImports(specifiers)), f.createStringLiteral(_relative(targetSrcFilePath, filename.replace(/\.ts$/,'')))));
-	}
 	//* Resolve circles
 	for(let i=0, len= mapCirlces.length; i<len; ++i){
 		let {entity, circles, varname}= mapCirlces[i];
@@ -515,6 +497,24 @@ export function toGraphQL(root: FormatReponse, f: ts.NodeFactory, pretty: boolea
 				);
 			}
 		}
+	}
+	//* Add other imports
+	var importIt= srcImports.entries();
+	while(true){
+		let n= importIt.next();
+		if(n.done) break;
+		let [filename, mp]= n.value;
+		let sbIt= mp.entries();
+		let specifiers: ts.ImportSpecifier[]= [];
+		while(true){
+			let n2= sbIt.next();
+			if(n2.done) break;
+			let [classname, tmpVar]= n2.value;
+			specifiers.push( f.createImportSpecifier(f.createIdentifier(classname), tmpVar) );
+		}
+		// imports
+		imports.push(f.createImportDeclaration(undefined, undefined, f.createImportClause(
+			false, undefined, f.createNamedImports(specifiers)), f.createStringLiteral(_relative(targetSrcFilePath, filename.replace(/\.ts$/,'')))));
 	}
 	//* Add return statement
 	var gqlSchema: {[k in keyof GraphQLSchemaConfig]: ts.Identifier}= {};

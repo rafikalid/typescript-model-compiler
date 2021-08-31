@@ -71,6 +71,7 @@ export function parse(pathPatterns:string[], compilerOptions: ts.CompilerOptions
 				let tagText:any;
 				switch(tagName){
 					case 'ignore':
+					case 'virtual':
 						// Ignore this Node
 						continue rootLoop;
 					case 'deprecated':
