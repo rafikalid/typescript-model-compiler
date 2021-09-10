@@ -19,7 +19,7 @@ import {
 	Reference,
 	Scalar,
 	Union,
-	DEFAULT_SCALARS,
+	DEFAULT_SCALARS
 } from 'tt-model';
 import JSON5 from 'json5';
 import { info, warn } from '@src/utils/log';
@@ -92,7 +92,7 @@ export function parse(
 						.find(
 							e => e.kind === ts.SyntaxKind.JSDocComment
 						) as ts.JSDoc
-				)?.comment,
+				)?.comment
 			] ??
 			[];
 		let jsDocTags = ts.getJSDocTags(node);
@@ -226,6 +226,14 @@ export function parse(
 										t.typeArguments == null
 											? undefined
 											: [],
+									visibleFields:
+										t.typeArguments == null
+											? undefined
+											: _getRefVisibleFields(
+													t,
+													typeChecker,
+													srcFile
+											  )
 								};
 								visitor.push(t.typeArguments, nRef, srcFile);
 								inherited.push(nRef);
@@ -236,25 +244,11 @@ export function parse(
 					jsDoc.push(...clauses.map(e => `\n@${e.getText()}`));
 				}
 				// Visible fields
-				let cChilds = nodeType.getProperties();
-				let visibleFields: PlainObject['visibleFields'] = new Map();
-				for (let i = 0, len = cChilds.length; i < len; ++i) {
-					let s = cChilds[i];
-					let clName = (
-						(s.valueDeclaration ?? s.declarations?.[0])
-							?.parent as ts.ClassDeclaration
-					).name?.getText();
-					if (clName == null)
-						throw new Error(
-							`unknown className of inherited field "${nodeName}.${
-								s.name
-							}" at: ${_errorFile(srcFile, node)}`
-						);
-					visibleFields.set(s.name, {
-						flags: s.flags,
-						className: clName,
-					});
-				}
+				let visibleFields = _getRefVisibleFields(
+					node,
+					typeChecker,
+					srcFile
+				);
 				// Add Entity
 				if (nodeName == null)
 					throw new Error(
@@ -283,7 +277,7 @@ export function parse(
 						generics: generics,
 						visibleFields: visibleFields,
 						fileName: srcFile.fileName,
-						ownedFields: 0,
+						ownedFields: 0
 					};
 					ROOT.set(nodeName, entity);
 				} else if (entity.kind !== ModelKind.PLAIN_OBJECT) {
@@ -324,7 +318,7 @@ export function parse(
 						input: undefined,
 						output: undefined,
 						idx: pDesc.ownedFields++,
-						className: propertyNode.parent.name?.getText(),
+						className: propertyNode.parent.name?.getText()
 					};
 					pDesc.fields.set(nodeName, pField);
 				} else {
@@ -354,7 +348,7 @@ export function parse(
 							// type:		undefined,
 							param: undefined,
 							method: undefined,
-							fileName: srcFile.fileName,
+							fileName: srcFile.fileName
 						} as OutputField;
 						pField.output = f;
 					} else {
@@ -383,7 +377,7 @@ export function parse(
 							),
 							defaultValue: defaultValue,
 							validate: undefined,
-							fileName: srcFile.fileName,
+							fileName: srcFile.fileName
 						} as InputField;
 						pField.input = f;
 					} else {
@@ -426,7 +420,7 @@ export function parse(
 						input: undefined,
 						output: undefined,
 						idx: pDesc.ownedFields++,
-						className: parentNameNode,
+						className: parentNameNode
 					};
 					pDesc.fields.set(nodeName, field);
 				} else {
@@ -449,7 +443,7 @@ export function parse(
 					isStatic:
 						node.modifiers?.some(
 							n => n.kind === ts.SyntaxKind.StaticKeyword
-						) ?? false,
+						) ?? false
 				};
 				let inpOut: InputField | OutputField | undefined;
 				if (isInput === true) {
@@ -471,7 +465,7 @@ export function parse(
 							),
 							defaultValue: defaultValue,
 							validate: method,
-							fileName: srcFile.fileName,
+							fileName: srcFile.fileName
 						} as InputField;
 						field.input = inpOut;
 					} else {
@@ -500,7 +494,7 @@ export function parse(
 							// type:		undefined,
 							param: undefined,
 							method: method,
-							fileName: srcFile.fileName,
+							fileName: srcFile.fileName
 						} as OutputField;
 						field.output = inpOut;
 					} else {
@@ -547,7 +541,7 @@ export function parse(
 					deprecated: deprecated,
 					jsDoc: jsDoc,
 					type: undefined,
-					fileName: srcFile.fileName,
+					fileName: srcFile.fileName
 				};
 				pDesc.param = pRef;
 				// Parse param type
@@ -584,7 +578,7 @@ export function parse(
 					deprecated: deprecated,
 					jsDoc: jsDoc,
 					members: [],
-					fileName: srcFile.fileName,
+					fileName: srcFile.fileName
 				};
 				ROOT.set(nodeName, enumEntity);
 				visitor.push(node.getChildren(), enumEntity, srcFile);
@@ -605,7 +599,7 @@ export function parse(
 					value: typeChecker.getConstantValue(node as ts.EnumMember)!,
 					deprecated: deprecated,
 					jsDoc: jsDoc,
-					fileName: srcFile.fileName,
+					fileName: srcFile.fileName
 				};
 				pDesc.members.push(enumMember);
 				break;
@@ -651,9 +645,9 @@ export function parse(
 										fileName: srcFile.fileName,
 										className: nodeName,
 										isStatic: true,
-										name: undefined,
+										name: undefined
 									},
-									fileName: srcFile.fileName,
+									fileName: srcFile.fileName
 								};
 								ROOT.set(fieldName, scalarEntity);
 								break;
@@ -681,9 +675,9 @@ export function parse(
 										fileName: srcFile.fileName,
 										className: nodeName,
 										isStatic: true,
-										name: undefined,
+										name: undefined
 									},
-									fileName: srcFile.fileName,
+									fileName: srcFile.fileName
 								};
 								ROOT.set(fieldName, unionNode);
 								let unionChildren = unionNode.types;
@@ -740,6 +734,7 @@ export function parse(
 												fileName: srcFile.fileName,
 												// TODO add support for Generic types in union
 												params: undefined,
+												visibleFields: undefined
 											};
 											unionChildren.push(ref);
 										}
@@ -838,8 +833,13 @@ export function parse(
 				let refEnt: Reference = {
 					kind: ModelKind.REF,
 					fileName: srcFile.fileName,
-					name: targetRef.typeName.getText(), // referenced node's name
+					name: targetRef.getText(), // referenced node's name
 					params: targetRef.typeArguments == null ? undefined : [],
+					visibleFields: _getRefVisibleFields(
+						targetRef,
+						typeChecker,
+						srcFile
+					)
 				};
 				if (pDesc.kind === ModelKind.REF) pDesc.params!.push(refEnt);
 				else pDesc.type = refEnt;
@@ -865,6 +865,7 @@ export function parse(
 					name: node.getText(),
 					fileName: srcFile.fileName,
 					params: undefined,
+					visibleFields: undefined
 				};
 				if (pDesc.kind === ModelKind.REF)
 					pDesc.params!.push(basicScalarRef);
@@ -885,7 +886,7 @@ export function parse(
 					required: true,
 					deprecated: deprecated,
 					jsDoc: jsDoc,
-					fileName: srcFile.fileName,
+					fileName: srcFile.fileName
 				} as List;
 				if (pDesc.kind === ModelKind.REF) pDesc.params!.push(arrTpe);
 				else pDesc.type = arrTpe;
@@ -923,7 +924,7 @@ export function parse(
 		if (!ROOT.has(fieldName)) {
 			let scalarNode: BasicScalar = {
 				kind: ModelKind.BASIC_SCALAR,
-				name: fieldName,
+				name: fieldName
 			};
 			ROOT.set(fieldName, scalarNode);
 		}
@@ -985,4 +986,43 @@ function _compileAsserts(
 			}\n\n${err?.stack}`
 		);
 	}
+}
+
+/** Load reference visible fields */
+function _getRefVisibleFields(
+	r: ts.Node,
+	typeChecker: ts.TypeChecker,
+	srcFile: ts.SourceFile
+) {
+	var visibleFields: Map<
+		string,
+		{
+			flags: ts.SymbolFlags;
+			className: string;
+		}
+	> = new Map();
+	for (
+		let i = 0,
+			props = typeChecker.getTypeAtLocation(r).getProperties(),
+			len = props.length;
+		i < len;
+		++i
+	) {
+		let s = props[i];
+		let clName = (
+			(s.valueDeclaration ?? s.declarations?.[0])
+				?.parent as ts.ClassDeclaration
+		).name?.getText();
+		if (clName == null)
+			throw new Error(
+				`unknown className of field "${r.getText()}.${s.name}" at: ${
+					srcFile.fileName
+				}`
+			);
+		visibleFields.set(s.name, {
+			flags: s.flags,
+			className: clName
+		});
+	}
+	return visibleFields;
 }

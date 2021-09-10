@@ -2,7 +2,7 @@ import {
 	FormattedInputNode,
 	FormattedInputObject,
 	FormattedOutputNode,
-	FormattedOutputObject,
+	FormattedOutputObject
 } from './formatter-model';
 import {
 	Field,
@@ -14,7 +14,7 @@ import {
 	OutputField,
 	Param,
 	PlainObject,
-	Reference,
+	Reference
 } from 'tt-model';
 import ts from 'typescript';
 import { warn } from '@src/utils/log';
@@ -23,7 +23,7 @@ import { warn } from '@src/utils/log';
 export function format(root: Map<string, Node>): FormatResponse {
 	const result: FormatResponse = {
 		input: new Map(),
-		output: new Map(),
+		output: new Map()
 	};
 	const inputMap = result.input;
 	const outputMap = result.output;
@@ -113,7 +113,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 						required: isRequired,
 						inheritedFrom: inheritedFrom,
 						index: f.idx,
-						className: f.className!,
+						className: f.className!
 					});
 				});
 				//* Sort fields
@@ -134,7 +134,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 						field: f,
 						inheritedFrom,
 						className,
-						required: isRequired,
+						required: isRequired
 					} = resolvedFields[i];
 					// Input field
 					if (f.input != null) {
@@ -161,7 +161,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 								inheritedFrom
 							),
 							asserts: fin.asserts,
-							validate: fin.validate,
+							validate: fin.validate
 						});
 					}
 					if (f.output != null) {
@@ -195,7 +195,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 								fout,
 								className,
 								inheritedFrom
-							),
+							)
 						});
 					}
 				}
@@ -209,7 +209,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 						escapedName: node.escapedName,
 						deprecated: node.deprecated,
 						jsDoc: nodeJsDoc,
-						fields: inputFields,
+						fields: inputFields
 					};
 					inputMap.set(nodeName, formattedInputObj);
 				}
@@ -220,7 +220,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 						escapedName: node.escapedName,
 						deprecated: node.deprecated,
 						jsDoc: nodeJsDoc,
-						fields: outputFields,
+						fields: outputFields
 					};
 					outputMap.set(nodeName, formattedOutputObj);
 				}
@@ -400,7 +400,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 				generics: undefined,
 				inherit: refNode.inherit,
 				ownedFields: refNode.ownedFields,
-				visibleFields: refNode.visibleFields,
+				visibleFields: refNode.visibleFields
 			};
 			resolvedGenerics.set(escapedName, gEntity);
 			rootQueue.push([escapedName, gEntity]);
@@ -410,6 +410,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 			fileName: ref.fileName,
 			name: escapedName,
 			params: undefined,
+			visibleFields: undefined
 		};
 	}
 
@@ -460,7 +461,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 		partialNode.visibleFields.forEach(function (f, fname) {
 			visibleFields.set(fname, {
 				flags: ts.SymbolFlags.Optional,
-				className: f.className,
+				className: f.className
 			});
 		});
 		// result
@@ -476,7 +477,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 			generics: undefined,
 			inherit: partialNode.inherit,
 			ownedFields: partialNode.ownedFields,
-			visibleFields: visibleFields,
+			visibleFields: visibleFields
 		};
 		rootQueue.push([escapedName, gEntity]);
 		// return reference
@@ -485,6 +486,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 			fileName: ref.fileName,
 			name: escapedName,
 			params: undefined,
+			visibleFields: undefined
 		};
 	}
 }
@@ -495,7 +497,7 @@ const sortJsDocKeywords = [
 	'Partial',
 	'implements',
 	'extends',
-	'inherit-from',
+	'inherit-from'
 ];
 function _sortJsDoc(arr: string[]) {
 	var arr2 = [];
@@ -586,7 +588,7 @@ function _resolveGenericFields(
 			input: field.input && _resolve(field.input),
 			output: field.output && _resolve(field.output),
 			className: field.className,
-			idx: field.idx,
+			idx: field.idx
 		};
 		fields.set(fieldName, f);
 	});
