@@ -1,23 +1,27 @@
 /** Print object and map into console as tree */
-export function printTree(root: any, tab: string){
+export function printTree(root: any, tab: string) {
 	return JSON.stringify(root, _replacer, tab);
 }
 
-function _replacer(k: string, v: any){
-	if(typeof v==='string' || typeof v==='number' || typeof v==='boolean') return v;
-	else if(typeof v==='symbol') return v.toString();
-	else if(typeof v==='function') return `<${v.name}(${', '.repeat(v.length)})>`;
-	else if(v instanceof Map){
-		let r: Record<any, any>= {};
-		v.forEach((mv, mk)=> {
-			r[mk]= mv;
+function _replacer(k: string, v: any) {
+	if (
+		typeof v === 'string' ||
+		typeof v === 'number' ||
+		typeof v === 'boolean'
+	)
+		return v;
+	else if (typeof v === 'symbol') return v.toString();
+	else if (typeof v === 'function')
+		return `<${v.name}(${', '.repeat(v.length)})>`;
+	else if (v instanceof Map) {
+		let r: Record<any, any> = {};
+		v.forEach((mv, mk) => {
+			r[mk] = mv;
 		});
 		return r;
-	} else if(v instanceof Set) return Array.from(v);
+	} else if (v instanceof Set) return Array.from(v);
 	else return v;
 }
-
-
 
 // function _print(tab: string, obj: any){
 // 	var arr: string[]= [];
@@ -76,5 +80,5 @@ function _replacer(k: string, v: any){
 // }
 
 // _printKey(obj: any){
-	
+
 // }

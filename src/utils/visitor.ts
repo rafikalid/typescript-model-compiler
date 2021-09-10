@@ -1,9 +1,9 @@
 /** Queue visitor */
 
-import ts from "typescript";
+import ts from 'typescript';
 
 /** Visitor pattern using generators */
-export class Visitor<T, TModelNode>{
+export class Visitor<T, TModelNode> {
 	private _queue: VisitorEntities<T, TModelNode>[] = [];
 	/** Get next element */
 	*it() {
@@ -14,24 +14,29 @@ export class Visitor<T, TModelNode>{
 		}
 	}
 	/** Push items */
-	push(nodes: T | readonly T[]|undefined, parentDescriptor: TModelNode|undefined, srcFile: ts.SourceFile, isInput?: boolean){
-		var queue= this._queue;
-		if(Array.isArray(nodes)){
+	push(
+		nodes: T | readonly T[] | undefined,
+		parentDescriptor: TModelNode | undefined,
+		srcFile: ts.SourceFile,
+		isInput?: boolean
+	) {
+		var queue = this._queue;
+		if (Array.isArray(nodes)) {
 			var i, len;
 			for (i = 0, len = nodes.length; i < len; ++i) {
 				queue.push({
 					node: nodes[i],
 					parentDescriptor,
 					srcFile,
-					isInput
+					isInput,
 				});
 			}
-		} else if(nodes!= null) {
+		} else if (nodes != null) {
 			queue.push({
 				node: nodes as T,
 				parentDescriptor,
 				srcFile,
-				isInput
+				isInput,
 			});
 		}
 		return this;
@@ -39,21 +44,21 @@ export class Visitor<T, TModelNode>{
 	/**
 	 * Clear visitor
 	 */
-	 clear(){
-		this._queue.length= 0;
+	clear() {
+		this._queue.length = 0;
 		return this;
 	}
 
 	/** Length */
-	get length(){
+	get length() {
 		return this._queue.length;
 	}
 }
 
 /** Interface */
-export interface VisitorEntities<T, TModelNode>{
-	node: T
-	parentDescriptor: 	TModelNode|undefined
-	srcFile:			ts.SourceFile
-	isInput:			boolean|undefined
+export interface VisitorEntities<T, TModelNode> {
+	node: T;
+	parentDescriptor: TModelNode | undefined;
+	srcFile: ts.SourceFile;
+	isInput: boolean | undefined;
 }

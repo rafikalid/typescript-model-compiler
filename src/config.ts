@@ -1,2 +1,1 @@
-
-export const PACKAGE_NAME= '"tt-model"';
+export const PACKAGE_NAME = '"tt-model"';

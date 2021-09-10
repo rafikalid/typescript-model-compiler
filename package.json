@@ -15,7 +15,7 @@
     "typescript",
     "model"
   ],
-  "author": "khalid rafik",
+  "author": "khalid RAFIK",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/rafikalid/typescript-model-compiler/issues"
@@ -36,7 +36,7 @@
     "graphql": "^15.5.1",
     "json5": "^2.2.0",
     "through2": "^4.0.2",
-    "tt-model": "^0.0.11",
+    "tt-model": "^0.0.13",
     "vinyl": "^2.2.1"
   }
 }
