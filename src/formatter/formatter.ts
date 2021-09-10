@@ -225,8 +225,95 @@ export function format(root: Map<string, Node>): FormatResponse {
 					outputMap.set(nodeName, formattedOutputObj);
 				}
 				break;
+			case ModelKind.OBJECT_LITERAL:
+				{
+					// TODO Implement object literals
+					throw new Error('Object literal are not supported yet.');
+					// //* Resolve fields
+					// let inputFields: FormattedInputObject['fields'] = [];
+					// let outputFields: FormattedOutputObject['fields'] = [];
+					// //* Load fields
+					// node.fields.forEach(function (field, fieldName) {
+					// 	// Input field
+					// 	if (field.input != null) {
+					// 		let fin = field.input;
+					// 		inputFields.push({
+					// 			kind: fin.kind,
+					// 			alias: fin.alias,
+					// 			name: fin.name,
+					// 			deprecated: fin.deprecated,
+					// 			defaultValue: fin.defaultValue,
+					// 			jsDoc: fin.jsDoc,
+					// 			required: fin.required,
+					// 			type: _resolveType(
+					// 				fin.type,
+					// 				fin,
+					// 				field.className!,
+					// 				undefined
+					// 			),
+					// 			asserts: fin.asserts,
+					// 			validate: fin.validate,
+					// 		});
+					// 	}
+					// 	if (field.output != null) {
+					// 		let fout = field.output;
+					// 		outputFields.push({
+					// 			kind: fout.kind,
+					// 			name: fout.name,
+					// 			alias: fout.alias,
+					// 			deprecated: fout.deprecated,
+					// 			jsDoc: fout.jsDoc,
+					// 			method: fout.method,
+					// 			param:
+					// 				fout.param == null
+					// 					? undefined
+					// 					: _resolveType(
+					// 							fout.param,
+					// 							fout,
+					// 							field.className!,
+					// 							undefined
+					// 					  ),
+					// 			required: fout.required,
+					// 			type: _resolveType(
+					// 				fout.type,
+					// 				fout,
+					// 				field.className!,
+					// 				undefined
+					// 			),
+					// 		});
+					// 	}
+					// });
+					// //* Entities
+					// let nodeJsDoc = _sortJsDoc(node.jsDoc);
+					// if (inputFields.length !== 0) {
+					// 	// Create object
+					// 	let formattedInputObj: FormattedInputObject = {
+					// 		kind: ModelKind.FORMATTED_INPUT_OBJECT,
+					// 		name: undefined,
+					// 		escapedName: undefined,
+					// 		deprecated: node.deprecated,
+					// 		jsDoc: nodeJsDoc,
+					// 		fields: inputFields,
+					// 	};
+					// 	inputMap.set(nodeName, formattedInputObj);
+					// }
+					// if (outputFields.length !== 0) {
+					// 	let formattedOutputObj: FormattedOutputObject = {
+					// 		kind: ModelKind.FORMATTED_OUTPUT_OBJECT,
+					// 		name: undefined,
+					// 		escapedName: undefined,
+					// 		deprecated: node.deprecated,
+					// 		jsDoc: nodeJsDoc,
+					// 		fields: outputFields,
+					// 	};
+					// 	outputMap.set(nodeName, formattedOutputObj);
+					// }
+				}
+				break;
 			default:
-				throw new Error(`Unknown kind: ${ModelKind[node.kind]}`);
+				let neverV: never = node;
+				// @ts-ignore
+				throw new Error(`Unknown kind: ${ModelKind[neverV.kind]}`);
 		}
 	}
 	return result;

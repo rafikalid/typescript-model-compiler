@@ -111,28 +111,37 @@ export function parse(
 						continue rootLoop;
 					case 'deprecated':
 						tagText = tag.comment;
-						if (Array.isArray(tagText))
-							tagText = tagText
-								.map((l: ts.JSDocText) => l.text)
-								.join('\n');
-						deprecated = tagText.toString();
+						if (tagText == null) deprecated = '';
+						else {
+							if (Array.isArray(tagText))
+								tagText = tagText
+									.map((l: ts.JSDocText) => l.text)
+									.join('\n');
+							deprecated = tagText.toString();
+						}
 						break;
 					case 'assert':
 						tagText = tag.comment;
-						if (Array.isArray(tagText))
-							tagText = tagText
-								.map((l: ts.JSDocText) => l.text)
-								.join(', ');
-						// FIXME check using multiple lines for jsdoc tag
-						if (tagText) {
-							tagText = tagText.trim();
-							if (!tagText.startsWith('{'))
-								tagText = `{${tagText}}`;
-							asserts.push(tagText);
+						if (tagText == null) {
+						} else {
+							if (Array.isArray(tagText))
+								tagText = tagText
+									.map((l: ts.JSDocText) => l.text)
+									.join(', ');
+							// FIXME check using multiple lines for jsdoc tag
+							if (tagText) {
+								tagText = tagText.trim();
+								if (!tagText.startsWith('{'))
+									tagText = `{${tagText}}`;
+								asserts.push(tagText);
+							}
 						}
 						break;
 					case 'default':
-						defaultValue = (tag.comment?.[0] as ts.JSDocText).text;
+						if (Array.isArray(tag.comment)) {
+							defaultValue = (tag.comment[0] as ts.JSDocText)
+								.text;
+						}
 						break;
 					case 'input':
 						isInput = true;
@@ -141,9 +150,8 @@ export function parse(
 						isInput = false;
 						break;
 					case 'alias':
-						fieldAlias = (tag.comment as string | undefined)
-							?.trim()
-							.split(/\s/, 1)[0];
+						if (typeof tag.comment === 'string')
+							fieldAlias = tag.comment.trim().split(/\s/, 1)[0];
 						break;
 				}
 			}
@@ -745,36 +753,42 @@ export function parse(
 			case ts.SyntaxKind.TypeLiteral:
 				//* Type literal are equivalent to nameless classes
 				if (pDesc == null) continue;
-				if (
-					pDesc.kind !== ModelKind.OUTPUT_FIELD &&
-					pDesc.kind !== ModelKind.INPUT_FIELD &&
-					pDesc.kind !== ModelKind.LIST &&
-					pDesc.kind !== ModelKind.PARAM
-				)
-					continue;
-				let typeLiteral: ObjectLiteral = {
-					kind: ModelKind.OBJECT_LITERAL,
-					name: undefined,
-					deprecated: deprecated,
-					jsDoc: jsDoc,
-					fields: new Map(),
-					fileName: srcFile.fileName,
-					ownedFields: 0,
-				};
-				let typeRef: Reference = {
-					kind: ModelKind.REF,
-					name: '',
-					fileName: srcFile.fileName,
-					params: undefined,
-				};
-				namelessEntities.push({
-					name: (pDesc as OutputField).name,
-					node: typeLiteral,
-					ref: typeRef,
-				});
-				pDesc.type = typeRef;
-				// Go through fields
-				visitor.push(node.getChildren(), typeLiteral, srcFile);
+				throw new Error(
+					`Type literals are'nt supported by this version. at ${_errorFile(
+						srcFile,
+						node
+					)}`
+				);
+				// if (
+				// 	pDesc.kind !== ModelKind.OUTPUT_FIELD &&
+				// 	pDesc.kind !== ModelKind.INPUT_FIELD &&
+				// 	pDesc.kind !== ModelKind.LIST &&
+				// 	pDesc.kind !== ModelKind.PARAM
+				// )
+				// 	continue;
+				// let typeLiteral: ObjectLiteral = {
+				// 	kind: ModelKind.OBJECT_LITERAL,
+				// 	name: undefined,
+				// 	deprecated: deprecated,
+				// 	jsDoc: jsDoc,
+				// 	fields: new Map(),
+				// 	fileName: srcFile.fileName,
+				// 	ownedFields: 0,
+				// };
+				// let typeRef: Reference = {
+				// 	kind: ModelKind.REF,
+				// 	name: '',
+				// 	fileName: srcFile.fileName,
+				// 	params: undefined,
+				// };
+				// namelessEntities.push({
+				// 	name: (pDesc as OutputField).name,
+				// 	node: typeLiteral,
+				// 	ref: typeRef,
+				// });
+				// pDesc.type = typeRef;
+				// // Go through fields
+				// visitor.push(node.getChildren(), typeLiteral, srcFile);
 				break;
 			case ts.SyntaxKind.UnionType:
 				if (pDesc == null) continue;
@@ -966,9 +980,9 @@ function _compileAsserts(
 		return prevAsserts;
 	} catch (err: any) {
 		throw new Error(
-			`Fail to parse assert arguments at ${
+			`Fail to parse: @assert ${asserts.join('\n')}\n at ${
 				srcFile.fileName
-			}\n${asserts.join('\n')}\n${err?.stack}`
+			}\n\n${err?.stack}`
 		);
 	}
 }

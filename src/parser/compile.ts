@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { join, dirname, relative } from 'path';
 import { parse as ParseModelFrom } from './parser';
 import { PACKAGE_NAME } from '@src/config';
-// import { printTree } from "@src/utils/console-print";
+import { printTree } from '@src/utils/console-print';
 import { format } from '@src/formatter/formatter';
 import { info } from '@src/utils/log';
 import { toGraphQL } from '@src/graphql/compiler';
@@ -45,7 +45,7 @@ export function generateModel(
 			.split(',')
 			.map(e => join(relativeDirname, e.trim()));
 		var root = ParseModelFrom(pArr, compilerOptions);
-		// console.log("===ROOT===\n", printTree(root, "\t"));
+		console.log('===ROOT===\n', printTree(root, '\t'));
 		// Create graphql object
 		info('>> FORMAT DATA');
 		var formatted = format(root);

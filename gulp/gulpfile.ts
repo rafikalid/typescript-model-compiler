@@ -1,17 +1,17 @@
 import Gulp from 'gulp';
 
-import {typescriptCompile} from './typescript.js'
+import { typescriptCompile } from './typescript.js';
 // import { compileTest } from './test-files.js';
 
-const {watch, series}= Gulp;
+const { watch, series } = Gulp;
 
-const argv= process.argv;
-const isProd= argv.includes('--prod');
-const doWatch= !isProd && !argv.includes('--nowatch');
+const argv = process.argv;
+const isProd = argv.includes('--prod');
+const doWatch = argv.includes('--watch');
 
 /** Watch modified files */
-function watchCb(cb: Function){
-	if(doWatch){
+function watchCb(cb: Function) {
+	if (doWatch) {
 		watch('src/**/*.ts', typescriptCompile);
 		// watch('src/app/graphql/schema/**/*.gql', graphQlCompile)
 	}
@@ -24,14 +24,14 @@ var tasks: any[];
 // 		compileTest
 // 	];
 // } else {
-tasks= [
+tasks = [
 	typescriptCompile,
 	// parallel([
 	// 	typescriptCompile,
 	// 	graphQlCompile
 	// ]),
-	watchCb
-]
+	watchCb,
+];
 // }
 
 export default series(tasks);
