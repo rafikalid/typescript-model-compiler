@@ -1,3 +1,5 @@
+import ts from 'typescript';
+
 /** Print object and map into console as tree */
 export function printTree(root: any, tab: string) {
 	return JSON.stringify(root, _replacer, tab);
@@ -20,6 +22,12 @@ function _replacer(k: string, v: any) {
 		});
 		return r;
 	} else if (v instanceof Set) return Array.from(v);
+	else if (
+		k === 'node' &&
+		typeof v === 'object' &&
+		typeof v?.kind === 'number'
+	)
+		return '<TS.REF>';
 	else return v;
 }
 

@@ -20,7 +20,10 @@ import ts from 'typescript';
 import { warn } from '@src/utils/log';
 
 /** Format parsed results to generate usable model */
-export function format(root: Map<string, Node>): FormatResponse {
+export function format(
+	root: Map<string, Node>,
+	program: ts.Program
+): FormatResponse {
 	const result: FormatResponse = {
 		input: new Map(),
 		output: new Map()
@@ -29,6 +32,7 @@ export function format(root: Map<string, Node>): FormatResponse {
 	const outputMap = result.output;
 	/** Resolved generics */
 	const resolvedGenerics: Map<string, PlainObject> = new Map();
+	const typeChecker = program.getTypeChecker();
 	//* Go through nodes
 	var rootQueue = Array.from(root.entries());
 	var rootQueueIdx = 0;
@@ -361,47 +365,50 @@ export function format(root: Map<string, Node>): FormatResponse {
 		inheritedFrom: string | undefined
 	): Reference {
 		var refNode = root.get(ref.name);
-		if (refNode == null) {
-			if (ref.name === 'Partial')
-				return _getPartial(ref, field, className, inheritedFrom);
-			else
+		var escapedName = _getGenericEscapedName(ref);
+		var gEntity = resolvedGenerics.get(escapedName);
+		if (gEntity == null) {
+			// Check has not entity with same name as this one escaped name
+			if (root.has(escapedName))
 				throw new Error(
-					`Missing generic entity "${ref.name}" referenced by "${
+					`Found entity "${escapedName}" witch equals to the escaped name of generic: ${_getGenericName(
+						ref
+					)} at ${ref.fileName}`
+				);
+			// Non Generic, logical type (like: Partial & Omit)
+			if (refNode == null)
+				gEntity = _getLogicEntity(
+					ref,
+					escapedName,
+					field,
+					className,
+					inheritedFrom
+				);
+			else if (refNode.kind !== ModelKind.PLAIN_OBJECT)
+				throw new Error(
+					`Expected PlainObject as reference of generic "${_getGenericName(
+						ref
+					)}". Got "${ModelKind[refNode.kind]}" at "${
 						inheritedFrom ?? className
 					}.${field?.name}" at ${ref.fileName}`
 				);
-		}
-		if (refNode.kind !== ModelKind.PLAIN_OBJECT)
-			throw new Error(
-				`Expected PlainObject as reference of generic "${_getGenericName(
-					ref
-				)}". Got "${ModelKind[refNode.kind]}" at "${
-					inheritedFrom ?? className
-				}.${field?.name}" at ${ref.fileName}`
-			);
-		var escapedName = _getGenericEscapedName(ref);
-		if (root.has(escapedName))
-			throw new Error(
-				`Found entity "${escapedName}" witch equals to the escaped name of generic: ${_getGenericName(
-					ref
-				)} at ${ref.fileName}`
-			);
-		var gEntity = resolvedGenerics.get(escapedName);
-		if (gEntity == null) {
-			let name = _getGenericName(ref);
-			gEntity = {
-				kind: ModelKind.PLAIN_OBJECT,
-				name: name,
-				escapedName: escapedName,
-				deprecated: refNode.deprecated,
-				jsDoc: _sortJsDoc(refNode.jsDoc.concat(`@Generic ${name}`)),
-				fields: _resolveGenericFields(refNode, ref),
-				fileName: refNode.fileName,
-				generics: undefined,
-				inherit: refNode.inherit,
-				ownedFields: refNode.ownedFields,
-				visibleFields: refNode.visibleFields
-			};
+			else {
+				let name = _getGenericName(ref);
+				gEntity = {
+					kind: ModelKind.PLAIN_OBJECT,
+					name: name,
+					escapedName: escapedName,
+					deprecated: refNode.deprecated,
+					jsDoc: _sortJsDoc(refNode.jsDoc.concat(`@Generic ${name}`)),
+					fields: _resolveGenericFields(refNode, ref),
+					fileName: refNode.fileName,
+					generics: undefined,
+					inherit: refNode.inherit,
+					ownedFields: refNode.ownedFields,
+					visibleFields: refNode.visibleFields
+				};
+			}
+			// Push to generics
 			resolvedGenerics.set(escapedName, gEntity);
 			rootQueue.push([escapedName, gEntity]);
 		}
@@ -410,84 +417,67 @@ export function format(root: Map<string, Node>): FormatResponse {
 			fileName: ref.fileName,
 			name: escapedName,
 			params: undefined,
-			visibleFields: undefined
+			node: undefined
 		};
 	}
 
-	/** Generate partial node */
-	function _getPartial(
+	/** Generate logic entities: like Partials & Omit */
+	function _getLogicEntity(
 		ref: Reference,
+		escapedName: string,
 		field: InputField | OutputField | undefined,
 		className: string,
 		inheritedFrom: string | undefined
-	): Reference {
-		var c: FieldType;
-		if (
-			ref.params == null ||
-			ref.params.length !== 1 ||
-			(c = ref.params[0]).kind !== ModelKind.REF ||
-			c.params != null
-		)
+	): PlainObject {
+		var refNode = ref.node;
+		// Check reference node found
+		if (refNode == null)
 			throw new Error(
-				`Unexpected Partial expression at "${
+				`Unexpected Logical Reference expression at "${
 					inheritedFrom ?? className
 				}.${field?.name}" at ${ref.fileName}`
 			);
-		let partialNode = root.get(c.name);
-		if (partialNode == null)
-			throw new Error(
-				`Missing entity "${c.name}" at "${inheritedFrom ?? className}.${
-					field?.name
-				}" at ${ref.fileName}`
-			);
-		if (partialNode.kind !== ModelKind.PLAIN_OBJECT)
-			throw new Error(
-				`Expected PlainObject as reference of generic "${
-					inheritedFrom ?? className
-				}.${field?.name}". Got "${ModelKind[partialNode.kind]}" at ${
-					ref.fileName
-				}`
-			);
-		// Check escaped name
-		var escapedName = _getGenericEscapedName(ref);
-		if (root.has(escapedName))
-			throw new Error(
-				`Found entity "${escapedName}" witch equals to the escaped name of generic: ${_getGenericName(
-					ref
-				)} at ${ref.fileName}`
-			);
-		// Visible fields
-		var visibleFields = new Map();
-		partialNode.visibleFields.forEach(function (f, fname) {
-			visibleFields.set(fname, {
-				flags: ts.SymbolFlags.Optional,
-				className: f.className
-			});
-		});
-		// result
+		// Prepare entity
+		var visibleFields: PlainObject['visibleFields'] = new Map();
+		var fields: PlainObject['fields'] = new Map();
 		var name = _getGenericName(ref);
-		var gEntity: PlainObject = {
+		var partialNode = root.get(ref.name) as PlainObject | undefined;
+		var jsDoc = partialNode == null ? [] : _sortJsDoc(partialNode.jsDoc); // .concat(`@Partial ${name}`)
+		var entity: PlainObject = {
 			kind: ModelKind.PLAIN_OBJECT,
 			name: name,
 			escapedName: escapedName,
-			deprecated: partialNode.deprecated,
-			jsDoc: _sortJsDoc(partialNode.jsDoc.concat(`@Partial ${name}`)),
-			fields: partialNode.fields,
-			fileName: partialNode.fileName,
+			deprecated: partialNode?.deprecated,
+			jsDoc: jsDoc,
+			fields: fields,
+			fileName: partialNode?.fileName ?? ref.fileName,
 			generics: undefined,
-			inherit: partialNode.inherit,
-			ownedFields: partialNode.ownedFields,
+			inherit: partialNode?.inherit,
+			ownedFields: 0,
 			visibleFields: visibleFields
 		};
-		rootQueue.push([escapedName, gEntity]);
-		// return reference
-		return {
-			kind: ModelKind.REF,
-			fileName: ref.fileName,
-			name: escapedName,
-			params: undefined,
-			visibleFields: undefined
-		};
+		// Load fields
+		for (
+			let i = 0,
+				props = typeChecker.getTypeAtLocation(refNode).getProperties(),
+				len = props.length;
+			i < len;
+			i++
+		) {
+			let prop = props[i];
+			let clName = (
+				(prop.valueDeclaration ?? prop.declarations?.[0])
+					?.parent as ts.ClassDeclaration
+			).name?.getText();
+			if (clName != null) {
+				visibleFields.set(prop.name, {
+					flags: prop.flags,
+					className: clName
+				});
+			}
+		}
+		// Return entity
+		return entity;
 	}
 }
 
@@ -537,32 +527,45 @@ interface ResolvedFieldInterface {
 }
 
 // Get generic escaped name
-function _getGenericEscapedName(ref: FieldType): string {
+function _getGenericEscapedName(ref: Reference): string {
+	if (ref.node == null) return _getGenericEscapedNameE(ref);
+	else
+		return ref.node
+			.getText()
+			.replace(/[>\]]/g, '')
+			.replace(/[<\],|]/g, '_')
+			.replace(/\W/g, '');
+}
+function _getGenericEscapedNameE(ref: FieldType): string {
 	switch (ref.kind) {
 		case ModelKind.REF:
 			if (ref.params == null) return ref.name;
 			else
 				return `${ref.name}_${ref.params
-					.map(_getGenericEscapedName)
+					.map(_getGenericEscapedNameE)
 					.join('_')}`;
 		case ModelKind.LIST:
-			return '_' + _getGenericEscapedName(ref.type);
+			return '_' + _getGenericEscapedNameE(ref.type);
 		default:
 			let t: never = ref;
 			throw new Error('Unsupported kind');
 	}
 }
 // Get generic name
-function _getGenericName(ref: FieldType): string {
+function _getGenericName(ref: Reference): string {
+	if (ref.node == null) return _getGenericNameE(ref);
+	else return ref.node.getText();
+}
+function _getGenericNameE(ref: FieldType): string {
 	switch (ref.kind) {
 		case ModelKind.REF:
 			if (ref.params == null) return ref.name;
 			else
 				return `${ref.name}<${ref.params
-					.map(_getGenericName)
+					.map(_getGenericNameE)
 					.join(', ')}>`;
 		case ModelKind.LIST:
-			return _getGenericName(ref.type) + '[]';
+			return _getGenericNameE(ref.type) + '[]';
 		default:
 			let t: never = ref;
 			throw new Error('Unsupported kind');

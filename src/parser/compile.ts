@@ -8,6 +8,7 @@ import { format } from '@src/formatter/formatter';
 import { info } from '@src/utils/log';
 import { toGraphQL } from '@src/graphql/compiler';
 import { _errorFile } from '@src/utils/error';
+import { getFilesFromPattern } from '..';
 
 // import { compileGraphQL } from "@src/graphql/compiler";
 
@@ -40,16 +41,19 @@ export function generateModel(
 	const srcFileDir = dirname(filePath);
 	mappedFiles.patterns.forEach(function (p) {
 		info('COMPILE PATTERN>>', p);
-		const pArr = p
-			.slice(1, p.length - 1)
-			.split(',')
-			.map(e => join(relativeDirname, e.trim()));
-		var root = ParseModelFrom(pArr, compilerOptions);
+		const filePaths = getFilesFromPattern(p, relativeDirname);
+		//* Create compiler host
+		info('>> Create program...');
+		const pHost = ts.createCompilerHost(compilerOptions, true);
+		//* Create program
+		const program = ts.createProgram(filePaths, compilerOptions, pHost);
+
+		var root = ParseModelFrom(filePaths, program);
 		console.log('===ROOT===\n', printTree(root, '\t'));
 		// Create graphql object
 		info('>> FORMAT DATA');
-		var formatted = format(root);
-		// console.log("===FORMATTED ROOT===\n", printTree(formatted, '  '));
+		var formatted = format(root, program);
+		console.log('===FORMATTED ROOT===\n', printTree(formatted, '  '));
 		if (mappedFiles.toGraphqlPatterns.has(p)) {
 			info('>> Compile to GraphQL');
 			var { imports, node } = toGraphQL(formatted, f, pretty, srcFileDir);
@@ -85,7 +89,7 @@ export function generateModel(
 					mapGqlPatternToNode,
 					mapFromPatternToNode
 				);
-			},
+			}
 		],
 		compilerOptions
 	).transformed[0] as ts.SourceFile;
@@ -163,7 +167,7 @@ function mapFilesWithModel(srcFile: ts.SourceFile): FilterFilesWithModelResp {
 		fromPatterns,
 		toGraphqlPatterns,
 		file: srcFile,
-		ModelVarName: ModelVarName,
+		ModelVarName: ModelVarName
 	};
 }
 

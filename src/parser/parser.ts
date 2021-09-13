@@ -24,14 +24,18 @@ import {
 import JSON5 from 'json5';
 import { info, warn } from '@src/utils/log';
 import { _errorFile } from '@src/utils/error';
+import { join } from 'path';
 const { parse: parseJSON } = JSON5;
 
-/** Parse files */
-export function parse(
-	pathPatterns: string[],
-	compilerOptions: ts.CompilerOptions
-): Map<string, Node> {
-	const ROOT: Map<string, Node> = new Map();
+/** Get files from Pattern */
+export function getFilesFromPattern(
+	pattern: string,
+	relativeDirname: string
+): string[] {
+	var pathPatterns = pattern
+		.slice(1, pattern.length - 1)
+		.split(',')
+		.map(e => join(relativeDirname, e.trim()));
 	//* Load files using glob
 	const files: string[] = [];
 	for (let i = 0, len = pathPatterns.length; i < len; ++i) {
@@ -50,11 +54,12 @@ export function parse(
 				', '
 			)}`
 		);
-	//* Create compiler host
-	info('>> Create program...');
-	const pHost = ts.createCompilerHost(compilerOptions, true);
-	//* Create program
-	const program = ts.createProgram(files, compilerOptions, pHost);
+	return files;
+}
+
+/** Parse files */
+export function parse(files: string[], program: ts.Program): Map<string, Node> {
+	const ROOT: Map<string, Node> = new Map();
 	const typeChecker = program.getTypeChecker();
 	//* STEP 1: RESOLVE EVERYTHING WITHOUT INHERITANCE
 	info('>> Parsing...');
@@ -226,14 +231,7 @@ export function parse(
 										t.typeArguments == null
 											? undefined
 											: [],
-									visibleFields:
-										t.typeArguments == null
-											? undefined
-											: _getRefVisibleFields(
-													t,
-													typeChecker,
-													srcFile
-											  )
+									node: t
 								};
 								visitor.push(t.typeArguments, nRef, srcFile);
 								inherited.push(nRef);
@@ -244,11 +242,7 @@ export function parse(
 					jsDoc.push(...clauses.map(e => `\n@${e.getText()}`));
 				}
 				// Visible fields
-				let visibleFields = _getRefVisibleFields(
-					node,
-					typeChecker,
-					srcFile
-				);
+				let visibleFields = _getRefVisibleFields(node, typeChecker);
 				// Add Entity
 				if (nodeName == null)
 					throw new Error(
@@ -734,7 +728,7 @@ export function parse(
 												fileName: srcFile.fileName,
 												// TODO add support for Generic types in union
 												params: undefined,
-												visibleFields: undefined
+												node: undefined
 											};
 											unionChildren.push(ref);
 										}
@@ -830,16 +824,19 @@ export function parse(
 				}
 				// Add reference
 				let targetRef = node as ts.TypeReferenceNode;
+				console.log(
+					'===>',
+					targetRef.getText(),
+					ts.SyntaxKind[targetRef.kind],
+					'::',
+					targetRef.typeName.getText()
+				);
 				let refEnt: Reference = {
 					kind: ModelKind.REF,
 					fileName: srcFile.fileName,
-					name: targetRef.getText(), // referenced node's name
+					name: targetRef.typeName.getText(), // referenced node's name
 					params: targetRef.typeArguments == null ? undefined : [],
-					visibleFields: _getRefVisibleFields(
-						targetRef,
-						typeChecker,
-						srcFile
-					)
+					node: targetRef
 				};
 				if (pDesc.kind === ModelKind.REF) pDesc.params!.push(refEnt);
 				else pDesc.type = refEnt;
@@ -865,7 +862,7 @@ export function parse(
 					name: node.getText(),
 					fileName: srcFile.fileName,
 					params: undefined,
-					visibleFields: undefined
+					node: undefined
 				};
 				if (pDesc.kind === ModelKind.REF)
 					pDesc.params!.push(basicScalarRef);
@@ -989,11 +986,7 @@ function _compileAsserts(
 }
 
 /** Load reference visible fields */
-function _getRefVisibleFields(
-	r: ts.Node,
-	typeChecker: ts.TypeChecker,
-	srcFile: ts.SourceFile
-) {
+function _getRefVisibleFields(r: ts.Node, typeChecker: ts.TypeChecker) {
 	var visibleFields: Map<
 		string,
 		{
@@ -1013,16 +1006,12 @@ function _getRefVisibleFields(
 			(s.valueDeclaration ?? s.declarations?.[0])
 				?.parent as ts.ClassDeclaration
 		).name?.getText();
-		if (clName == null)
-			throw new Error(
-				`unknown className of field "${r.getText()}.${s.name}" at: ${
-					srcFile.fileName
-				}`
-			);
-		visibleFields.set(s.name, {
-			flags: s.flags,
-			className: clName
-		});
+		if (clName != null) {
+			visibleFields.set(s.name, {
+				flags: s.flags,
+				className: clName
+			});
+		}
 	}
 	return visibleFields;
 }
