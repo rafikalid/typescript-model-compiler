@@ -227,11 +227,13 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									kind: ModelKind.REF,
 									fileName: srcFile.fileName,
 									name: txt!,
+									oName: txt!,
+									fullName: undefined,
 									params:
 										t.typeArguments == null
 											? undefined
 											: [],
-									node: t
+									visibleFields: undefined
 								};
 								visitor.push(t.typeArguments, nRef, srcFile);
 								inherited.push(nRef);
@@ -437,7 +439,8 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					isStatic:
 						node.modifiers?.some(
 							n => n.kind === ts.SyntaxKind.StaticKeyword
-						) ?? false
+						) ?? false,
+					isClass: ts.isClassDeclaration(node.parent)
 				};
 				let inpOut: InputField | OutputField | undefined;
 				if (isInput === true) {
@@ -639,7 +642,8 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 										fileName: srcFile.fileName,
 										className: nodeName,
 										isStatic: true,
-										name: undefined
+										name: undefined,
+										isClass: false
 									},
 									fileName: srcFile.fileName
 								};
@@ -669,7 +673,8 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 										fileName: srcFile.fileName,
 										className: nodeName,
 										isStatic: true,
-										name: undefined
+										name: undefined,
+										isClass: false
 									},
 									fileName: srcFile.fileName
 								};
@@ -722,13 +727,16 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 												}:${typeArg.getStart()}`
 											);
 										else {
+											let refN = dec.name!.getText();
 											let ref: Reference = {
 												kind: ModelKind.REF,
-												name: dec.name!.getText(),
+												name: refN,
+												oName: refN,
+												fullName: undefined,
 												fileName: srcFile.fileName,
 												// TODO add support for Generic types in union
 												params: undefined,
-												node: undefined
+												visibleFields: undefined
 											};
 											unionChildren.push(ref);
 										}
@@ -824,19 +832,15 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 				}
 				// Add reference
 				let targetRef = node as ts.TypeReferenceNode;
-				console.log(
-					'===>',
-					targetRef.getText(),
-					ts.SyntaxKind[targetRef.kind],
-					'::',
-					targetRef.typeName.getText()
-				);
+
 				let refEnt: Reference = {
 					kind: ModelKind.REF,
 					fileName: srcFile.fileName,
-					name: targetRef.typeName.getText(), // referenced node's name
+					name: _refTargetName(targetRef), // referenced node's name
+					oName: targetRef.typeName.getText(),
+					fullName: targetRef.getText(),
 					params: targetRef.typeArguments == null ? undefined : [],
-					node: targetRef
+					visibleFields: _getRefVisibleFields(targetRef, typeChecker)
 				};
 				if (pDesc.kind === ModelKind.REF) pDesc.params!.push(refEnt);
 				else pDesc.type = refEnt;
@@ -857,12 +861,15 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					pDesc.kind !== ModelKind.PARAM
 				)
 					continue;
+				let t = node.getText();
 				let basicScalarRef: Reference = {
 					kind: ModelKind.REF,
-					name: node.getText(),
+					name: t,
+					oName: t,
+					fullName: undefined,
 					fileName: srcFile.fileName,
 					params: undefined,
-					node: undefined
+					visibleFields: undefined
 				};
 				if (pDesc.kind === ModelKind.REF)
 					pDesc.params!.push(basicScalarRef);
@@ -950,6 +957,27 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 		}
 	}
 	return ROOT;
+
+	/** Resolve reference target name */
+	function _refTargetName(ref: ts.TypeReferenceNode) {
+		let refTypeSymb = typeChecker.getTypeAtLocation(ref.typeName).symbol;
+		let refTargetNode =
+			refTypeSymb == null
+				? undefined
+				: refTypeSymb.valueDeclaration ?? refTypeSymb.declarations?.[0];
+
+		let refTextName: string;
+		if (refTargetNode == null) refTextName = ref.typeName.getText();
+		else {
+			// Get parent of enums
+			if (ts.isEnumMember(refTargetNode))
+				refTargetNode = refTargetNode.parent;
+			refTextName =
+				(refTargetNode as ts.InterfaceDeclaration).name?.getText() ||
+				ref.typeName.getText();
+		}
+		return refTextName;
+	}
 }
 
 /** Nameless entities */

@@ -5,7 +5,7 @@ import {
 	FormattedInputObject,
 	formattedOutputField,
 	FormattedOutputNode,
-	FormattedOutputObject,
+	FormattedOutputObject
 } from '@src/formatter/formatter-model';
 import {
 	FieldType,
@@ -15,7 +15,7 @@ import {
 	ModelKind,
 	Param,
 	Reference,
-	Union,
+	Union
 } from 'tt-model';
 import {
 	GraphQLEnumTypeConfig,
@@ -25,7 +25,7 @@ import {
 	GraphQLInputObjectTypeConfig,
 	GraphQLObjectTypeConfig,
 	GraphQLScalarTypeConfig,
-	GraphQLSchemaConfig,
+	GraphQLSchemaConfig
 } from 'graphql';
 import ts from 'typescript';
 import { relative } from 'path';
@@ -70,16 +70,19 @@ export function toGraphQL(
 		'GraphQLUnionType',
 		GraphQLUnionType,
 		'GraphQLFieldResolver',
-		GraphQLFieldResolver,
+		GraphQLFieldResolver
 	];
 	//* tt-model imports
 	const inputValidationWrapper = f.createUniqueName('inputValidationWrapper');
 	const ttModelImports: (string | ts.Identifier)[] = [
 		'inputValidationWrapper',
-		inputValidationWrapper,
+		inputValidationWrapper
 	];
 	//* Other imports
-	const srcImports: Map<string, Map<string, ts.Identifier>> = new Map();
+	const srcImports: Map<
+		string,
+		Map<string, { varName: ts.Identifier; isClass: boolean }>
+	> = new Map();
 	//* Go through Model
 	const { input: rootInput, output: rootOutput } = root;
 	const queue: QueueInterface[] = [];
@@ -88,21 +91,21 @@ export function toGraphQL(
 			entity: rootOutput.get('Subscription')!,
 			isInput: false,
 			index: 0,
-			circles: undefined,
+			circles: undefined
 		});
 	if (rootOutput.has('Mutation'))
 		queue.push({
 			entity: rootOutput.get('Mutation')!,
 			isInput: false,
 			index: 0,
-			circles: undefined,
+			circles: undefined
 		});
 	if (rootOutput.has('Query'))
 		queue.push({
 			entity: rootOutput.get('Query')!,
 			isInput: false,
 			index: 0,
-			circles: undefined,
+			circles: undefined
 		});
 	var queueLen: number;
 	/** Map entities to their variables */
@@ -132,7 +135,7 @@ export function toGraphQL(
 							entity: entity.fields[index++],
 							isInput,
 							index: 0,
-							circles: undefined,
+							circles: undefined
 						});
 						currentNode.index = index;
 						continue rootLoop;
@@ -170,7 +173,7 @@ export function toGraphQL(
 						mapCircles.push({
 							entity,
 							varname: fieldsVar,
-							circles: circles,
+							circles: circles
 						});
 						// Create obj
 						let entityDesc: {
@@ -180,7 +183,7 @@ export function toGraphQL(
 							)]: any;
 						} = {
 							name: entityName,
-							fields: fieldsVar,
+							fields: fieldsVar
 						};
 						if (entity.jsDoc.length > 0)
 							entityDesc.description = entity.jsDoc.join('\n');
@@ -197,7 +200,7 @@ export function toGraphQL(
 										),
 										f.createKeywordTypeNode(
 											ts.SyntaxKind.AnyKeyword
-										),
+										)
 									]
 								),
 								_serializeObject(expFields)
@@ -208,7 +211,7 @@ export function toGraphQL(
 								undefined,
 								undefined,
 								f.createNewExpression(gqlObjet, undefined, [
-									_serializeObject(entityDesc),
+									_serializeObject(entityDesc)
 								])
 							)
 						);
@@ -236,12 +239,12 @@ export function toGraphQL(
 						}
 						mapVldEntities.set(entity, {
 							var: vldVar,
-							len: vfields.length,
+							len: vfields.length
 						});
 						mapVldCircles.push({
 							entity,
 							varname: vldFieldsVar,
-							circles,
+							circles
 						});
 						// add object definition
 						validationDeclarations.push(
@@ -263,7 +266,7 @@ export function toGraphQL(
 								),
 								_serializeObject({
 									kind: ModelKind.PLAIN_OBJECT,
-									fields: vldFieldsVar,
+									fields: vldFieldsVar
 								})
 							)
 						);
@@ -289,7 +292,7 @@ export function toGraphQL(
 							)]: any;
 						} = {
 							name: entityName,
-							fields: _serializeObject(expFields),
+							fields: _serializeObject(expFields)
 						};
 						if (entity.jsDoc.length > 0)
 							entityDesc.description = entity.jsDoc.join('\n');
@@ -299,7 +302,7 @@ export function toGraphQL(
 								undefined,
 								undefined,
 								f.createNewExpression(gqlObjet, undefined, [
-									_serializeObject(entityDesc),
+									_serializeObject(entityDesc)
 								])
 							)
 						);
@@ -324,7 +327,7 @@ export function toGraphQL(
 								let vldVar = f.createUniqueName(entityName);
 								mapVldEntities.set(entity, {
 									var: vldVar,
-									len: vfields.length,
+									len: vfields.length
 								});
 								validationDeclarations.push(
 									f.createVariableDeclaration(
@@ -338,7 +341,7 @@ export function toGraphQL(
 											fields: f.createArrayLiteralExpression(
 												vfields,
 												pretty
-											),
+											)
 										})
 									)
 								);
@@ -365,7 +368,7 @@ export function toGraphQL(
 							entity: entity.types[index++],
 							isInput: false,
 							index: 0,
-							circles: undefined,
+							circles: undefined
 						});
 						currentNode.index = index;
 						continue rootLoop;
@@ -406,10 +409,7 @@ export function toGraphQL(
 						mapCircles.push({ entity, varname: typesVar, circles });
 					}
 					// Create object
-					let unionImportedDescVar = _getLocalImport(
-						entity.parser.fileName,
-						entity.parser.className
-					);
+					let unionImportedDescVar = _getLocalImport(entity.parser);
 					let unionDesc = [
 						f.createPropertyAssignment(
 							'name',
@@ -434,13 +434,13 @@ export function toGraphQL(
 											[
 												f.createIdentifier('value'),
 												f.createIdentifier('ctx'),
-												f.createIdentifier('info'),
+												f.createIdentifier('info')
 											]
 										)
 									)
-								),
+								)
 							]
-						),
+						)
 					];
 					if (entity.jsDoc.length > 0)
 						unionDesc.push(
@@ -466,7 +466,7 @@ export function toGraphQL(
 								f.createObjectLiteralExpression(
 									unionDesc,
 									pretty
-								),
+								)
 							])
 						)
 					);
@@ -479,7 +479,7 @@ export function toGraphQL(
 							entity: entity.type,
 							isInput: true,
 							index: 0,
-							circles: undefined,
+							circles: undefined
 						});
 						continue rootLoop;
 					} else if (fieldHasCircle) {
@@ -508,7 +508,7 @@ export function toGraphQL(
 								entity: entity.type,
 								isInput: false,
 								index: 0,
-								circles: undefined,
+								circles: undefined
 							});
 							++currentNode.index;
 							continue rootLoop;
@@ -522,7 +522,7 @@ export function toGraphQL(
 									entity: entity.param.type,
 									isInput: true,
 									index: 0,
-									circles: undefined,
+									circles: undefined
 								});
 								++currentNode.index;
 								continue rootLoop;
@@ -537,7 +537,7 @@ export function toGraphQL(
 							entity: entity.type,
 							isInput,
 							index: 0,
-							circles: undefined,
+							circles: undefined
 						});
 						continue rootLoop;
 					}
@@ -562,7 +562,7 @@ export function toGraphQL(
 								entity: refNode,
 								isInput,
 								index: 0,
-								circles: undefined,
+								circles: undefined
 							});
 						}
 						continue rootLoop;
@@ -584,7 +584,7 @@ export function toGraphQL(
 						let member = members[i];
 						let obj: { [k in keyof GraphQLEnumValueConfig]: any } =
 							{
-								value: member.value,
+								value: member.value
 							};
 						if (member.jsDoc.length > 0)
 							obj.description = member.jsDoc.join('\n');
@@ -604,7 +604,7 @@ export function toGraphQL(
 						values: f.createObjectLiteralExpression(
 							enumValues,
 							pretty
-						),
+						)
 					};
 					if (entity.jsDoc.length > 0)
 						entityDesc.description = entity.jsDoc.join('\n');
@@ -614,7 +614,7 @@ export function toGraphQL(
 							undefined,
 							undefined,
 							f.createNewExpression(GraphQLEnumType, undefined, [
-								_serializeObject(entityDesc),
+								_serializeObject(entityDesc)
 							])
 						)
 					);
@@ -629,7 +629,7 @@ export function toGraphQL(
 					} = {
 						name: scalarName,
 						parseValue: _getMethodCall(entity.parser, 'parse'),
-						serialize: _getMethodCall(entity.parser, 'serialize'),
+						serialize: _getMethodCall(entity.parser, 'serialize')
 					};
 					if (entity.jsDoc.length > 0)
 						scalardesc.description = entity.jsDoc.join('\n');
@@ -769,7 +769,7 @@ export function toGraphQL(
 				f.createNamedImports(ttImportsF)
 			),
 			f.createStringLiteral('tt-model')
-		),
+		)
 	];
 	//* Resolve circles
 	for (let i = 0, len = mapCircles.length; i < len; ++i) {
@@ -861,6 +861,7 @@ export function toGraphQL(
 	}
 	//* Add other imports
 	var importIt = srcImports.entries();
+	const importCreateObjects: ts.VariableDeclaration[] = [];
 	while (true) {
 		let n = importIt.next();
 		if (n.done) break;
@@ -871,9 +872,30 @@ export function toGraphQL(
 			let n2 = sbIt.next();
 			if (n2.done) break;
 			let [className, tmpVar] = n2.value;
-			specifiers.push(
-				f.createImportSpecifier(f.createIdentifier(className), tmpVar)
-			);
+
+			// Add import specifier
+			if (tmpVar.isClass) {
+				let isp = f.createUniqueName(className);
+				specifiers.push(
+					f.createImportSpecifier(f.createIdentifier(className), isp)
+				);
+				// Create var
+				importCreateObjects.push(
+					f.createVariableDeclaration(
+						tmpVar.varName,
+						undefined,
+						undefined,
+						f.createNewExpression(isp, undefined, [])
+					)
+				);
+			} else {
+				specifiers.push(
+					f.createImportSpecifier(
+						f.createIdentifier(className),
+						tmpVar.varName
+					)
+				);
+			}
 		}
 		// imports
 		imports.push(
@@ -911,10 +933,18 @@ export function toGraphQL(
 	statementsBlock.push(
 		f.createReturnStatement(
 			f.createNewExpression(GraphQLSchema, undefined, [
-				_serializeObject(gqlSchema),
+				_serializeObject(gqlSchema)
 			])
 		)
 	);
+	//* Create vars for imported classes
+	if (importCreateObjects.length)
+		statementsBlock.unshift(
+			f.createVariableStatement(
+				undefined,
+				f.createVariableDeclarationList(importCreateObjects)
+			)
+		);
 	//* RETURN
 	return {
 		imports,
@@ -932,7 +962,7 @@ export function toGraphQL(
 			),
 			undefined,
 			[]
-		),
+		)
 	};
 	/** Create basic scalar */
 	function _createBasicScalar(
@@ -950,7 +980,7 @@ export function toGraphQL(
 				serialize: f.createPropertyAccessExpression(
 					scalarDescVar,
 					f.createIdentifier('serialize')
-				),
+				)
 			};
 		// if(comment!=null) uIntConf.description= comment;
 		graphqlDeclarations.push(
@@ -959,7 +989,7 @@ export function toGraphQL(
 				undefined,
 				undefined,
 				f.createNewExpression(GraphQLScalarType, undefined, [
-					_serializeObject(uIntConf),
+					_serializeObject(uIntConf)
 				])
 			)
 		);
@@ -985,7 +1015,7 @@ export function toGraphQL(
 	}
 	/** Generate method call */
 	function _getMethodCall(method: MethodDescriptor, methodName?: string) {
-		var varId = _getLocalImport(method.fileName, method.className);
+		var varId = _getLocalImport(method);
 		methodName ??= method.name!;
 		return f.createPropertyAccessExpression(
 			varId,
@@ -997,18 +1027,21 @@ export function toGraphQL(
 		);
 	}
 	/** Get import var from locale source */
-	function _getLocalImport(fileName: string, className: string) {
-		var fl = srcImports.get(fileName);
+	function _getLocalImport(method: MethodDescriptor) {
+		var fl = srcImports.get(method.fileName);
 		if (fl == null) {
 			fl = new Map();
-			srcImports.set(fileName, fl);
+			srcImports.set(method.fileName, fl);
 		}
-		var vr = fl.get(className);
+		var vr = fl.get(method.className);
 		if (vr == null) {
-			vr = f.createUniqueName(className);
-			fl.set(className, vr);
+			vr = {
+				varName: f.createUniqueName(method.className),
+				isClass: method.isClass
+			};
+			fl.set(method.className, vr);
 		}
-		return vr;
+		return vr.varName;
 	}
 	/** Compile field */
 	function _compileField(
@@ -1016,7 +1049,7 @@ export function toGraphQL(
 	): ts.Expression {
 		if (field.kind === ModelKind.INPUT_FIELD) {
 			let obj: { [k in keyof GraphQLInputFieldConfig]: any } = {
-				type: _compileFieldPart(field.type, true),
+				type: _compileFieldPart(field.type, true)
 			};
 			if (field.defaultValue != null)
 				obj.defaultValue = field.defaultValue;
@@ -1027,7 +1060,7 @@ export function toGraphQL(
 			return _serializeObject(obj);
 		} else {
 			let obj: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
-				type: _compileFieldPart(field.type, false),
+				type: _compileFieldPart(field.type, false)
 			};
 			if (field.deprecated != null)
 				obj.deprecationReason = field.deprecated;
@@ -1082,7 +1115,7 @@ export function toGraphQL(
 									ts.SyntaxKind.AnyKeyword
 								),
 								undefined
-							),
+							)
 						],
 						undefined,
 						f.createBlock(
@@ -1092,7 +1125,7 @@ export function toGraphQL(
 										f.createIdentifier('parent'),
 										f.createIdentifier(field.name)
 									)
-								),
+								)
 							],
 							pretty
 						)
@@ -1134,11 +1167,11 @@ export function toGraphQL(
 		for (let i = 0, len = wrappers.length; i < len; ++i) {
 			if (wrappers[i] === 0)
 				refNodeVar = f.createNewExpression(GraphQLList, undefined, [
-					refNodeVar,
+					refNodeVar
 				]);
 			else
 				refNodeVar = f.createNewExpression(GraphQLNonNull, undefined, [
-					refNodeVar,
+					refNodeVar
 				]);
 		}
 		return refNodeVar;
@@ -1210,7 +1243,7 @@ export function toGraphQL(
 				f.createPropertyAssignment(
 					'name',
 					f.createStringLiteral(field.name)
-				),
+				)
 			];
 			// Input
 			if (field.validate != null)
@@ -1241,7 +1274,7 @@ export function toGraphQL(
 					f.createPropertyAssignment(
 						'kind',
 						f.createNumericLiteral(ModelKind.LIST)
-					),
+					)
 				];
 				if (child.required)
 					properties.push(
@@ -1314,7 +1347,7 @@ export function toGraphQL(
 			resolveCb,
 			f.createTypeReferenceNode(GraphQLFieldResolver, [
 				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
 			])
 		);
 	}

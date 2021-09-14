@@ -49,11 +49,11 @@ export function generateModel(
 		const program = ts.createProgram(filePaths, compilerOptions, pHost);
 
 		var root = ParseModelFrom(filePaths, program);
-		console.log('===ROOT===\n', printTree(root, '\t'));
+		// console.log('===ROOT===\n', printTree(root, '\t'));
 		// Create graphql object
 		info('>> FORMAT DATA');
 		var formatted = format(root, program);
-		console.log('===FORMATTED ROOT===\n', printTree(formatted, '  '));
+		// console.log('===FORMATTED ROOT===\n', printTree(formatted, '  '));
 		if (mappedFiles.toGraphqlPatterns.has(p)) {
 			info('>> Compile to GraphQL');
 			var { imports, node } = toGraphQL(formatted, f, pretty, srcFileDir);

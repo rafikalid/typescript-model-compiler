@@ -55,15 +55,16 @@ export function format(
 					++i
 				) {
 					let ref = types[i];
-					if (ref.params != null) {
-						ref = _resolveGeneric(
-							ref,
-							undefined,
-							nodeName,
-							undefined
-						);
-						types[i] = ref;
-					}
+					// fix reference
+					if (root.has(ref.name) === false) ref.name = ref.oName;
+					// Resolve generics
+					ref = _resolveReference(
+						ref,
+						undefined,
+						nodeName,
+						undefined
+					);
+					types[i] = ref;
 				}
 				break;
 			case ModelKind.PLAIN_OBJECT:
@@ -331,24 +332,22 @@ export function format(
 	): T {
 		// Check if field has generic type
 		var p: FieldType | Param = type;
-		while (p.kind !== ModelKind.REF) {
-			p = p.type!;
-			if (p == null) return type;
-		}
-		if (p.params == null) return type;
-		// Resolve generic reference
 		var q: (FieldType | Param)[] = [];
-		p = type;
 		while (p.kind !== ModelKind.REF) {
 			q.push(p);
 			p = p.type!;
+			if (p == null) return type;
 		}
-		var resolvedRef: FieldType | Param = _resolveGeneric(
+		// fix reference
+		if (root.has(p.name) === false) p.name = p.oName;
+		// Generics
+		var resolvedRef: FieldType | Param = _resolveReference(
 			p,
 			field,
 			className,
 			inheritedFrom
 		);
+		if (resolvedRef === p) return type;
 		if (q.length !== 0) {
 			q.reverse();
 			for (let i = 0, len = q.length; i < len; ++i) {
@@ -358,13 +357,16 @@ export function format(
 		return resolvedRef as T;
 	}
 	/** Resolve generic type */
-	function _resolveGeneric(
+	function _resolveReference(
 		ref: Reference,
 		field: InputField | OutputField | undefined,
 		className: string,
 		inheritedFrom: string | undefined
 	): Reference {
 		var refNode = root.get(ref.name);
+		//* Case normal reference
+		if (refNode != null && ref.params == null) return ref;
+		//* Case Generic or Logical entity
 		var escapedName = _getGenericEscapedName(ref);
 		var gEntity = resolvedGenerics.get(escapedName);
 		if (gEntity == null) {
@@ -375,7 +377,7 @@ export function format(
 						ref
 					)} at ${ref.fileName}`
 				);
-			// Non Generic, logical type (like: Partial & Omit)
+			// logical entity (like "Omit" & "Partial")
 			if (refNode == null)
 				gEntity = _getLogicEntity(
 					ref,
@@ -416,8 +418,10 @@ export function format(
 			kind: ModelKind.REF,
 			fileName: ref.fileName,
 			name: escapedName,
+			oName: escapedName,
+			fullName: undefined,
 			params: undefined,
-			node: undefined
+			visibleFields: undefined
 		};
 	}
 
@@ -429,17 +433,14 @@ export function format(
 		className: string,
 		inheritedFrom: string | undefined
 	): PlainObject {
-		var refNode = ref.node;
-		// Check reference node found
-		if (refNode == null)
+		// Check reference node
+		if (ref.visibleFields == null)
 			throw new Error(
 				`Unexpected Logical Reference expression at "${
 					inheritedFrom ?? className
 				}.${field?.name}" at ${ref.fileName}`
 			);
 		// Prepare entity
-		var visibleFields: PlainObject['visibleFields'] = new Map();
-		var fields: PlainObject['fields'] = new Map();
 		var name = _getGenericName(ref);
 		var partialNode = root.get(ref.name) as PlainObject | undefined;
 		var jsDoc = partialNode == null ? [] : _sortJsDoc(partialNode.jsDoc); // .concat(`@Partial ${name}`)
@@ -449,33 +450,13 @@ export function format(
 			escapedName: escapedName,
 			deprecated: partialNode?.deprecated,
 			jsDoc: jsDoc,
-			fields: fields,
+			fields: new Map(),
 			fileName: partialNode?.fileName ?? ref.fileName,
 			generics: undefined,
 			inherit: partialNode?.inherit,
 			ownedFields: 0,
-			visibleFields: visibleFields
+			visibleFields: ref.visibleFields
 		};
-		// Load fields
-		for (
-			let i = 0,
-				props = typeChecker.getTypeAtLocation(refNode).getProperties(),
-				len = props.length;
-			i < len;
-			i++
-		) {
-			let prop = props[i];
-			let clName = (
-				(prop.valueDeclaration ?? prop.declarations?.[0])
-					?.parent as ts.ClassDeclaration
-			).name?.getText();
-			if (clName != null) {
-				visibleFields.set(prop.name, {
-					flags: prop.flags,
-					className: clName
-				});
-			}
-		}
 		// Return entity
 		return entity;
 	}
@@ -528,13 +509,12 @@ interface ResolvedFieldInterface {
 
 // Get generic escaped name
 function _getGenericEscapedName(ref: Reference): string {
-	if (ref.node == null) return _getGenericEscapedNameE(ref);
-	else
-		return ref.node
-			.getText()
-			.replace(/[>\]]/g, '')
+	return (
+		ref.fullName
+			?.replace(/[>\]]/g, '')
 			.replace(/[<\],|]/g, '_')
-			.replace(/\W/g, '');
+			.replace(/\W/g, '') ?? _getGenericEscapedNameE(ref)
+	);
 }
 function _getGenericEscapedNameE(ref: FieldType): string {
 	switch (ref.kind) {
@@ -553,8 +533,7 @@ function _getGenericEscapedNameE(ref: FieldType): string {
 }
 // Get generic name
 function _getGenericName(ref: Reference): string {
-	if (ref.node == null) return _getGenericNameE(ref);
-	else return ref.node.getText();
+	return ref.fullName ?? _getGenericNameE(ref);
 }
 function _getGenericNameE(ref: FieldType): string {
 	switch (ref.kind) {
