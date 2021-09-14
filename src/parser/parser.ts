@@ -440,7 +440,11 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						node.modifiers?.some(
 							n => n.kind === ts.SyntaxKind.StaticKeyword
 						) ?? false,
-					isClass: ts.isClassDeclaration(node.parent)
+					isClass:
+						ts.isClassDeclaration(node.parent) &&
+						!node.parent.modifiers?.some(
+							e => e.kind === ts.SyntaxKind.AbstractKeyword
+						)
 				};
 				let inpOut: InputField | OutputField | undefined;
 				if (isInput === true) {

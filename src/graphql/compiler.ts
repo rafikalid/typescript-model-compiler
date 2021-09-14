@@ -1019,11 +1019,13 @@ export function toGraphQL(
 		methodName ??= method.name!;
 		return f.createPropertyAccessExpression(
 			varId,
-			f.createIdentifier(
-				method.isStatic === true
-					? methodName
-					: `prototype.${methodName}`
-			)
+			method.isClass
+				? f.createIdentifier(methodName)
+				: f.createIdentifier(
+						method.isStatic === true
+							? methodName
+							: `prototype.${methodName}`
+				  )
 		);
 	}
 	/** Get import var from locale source */
