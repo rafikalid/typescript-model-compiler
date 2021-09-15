@@ -17,6 +17,7 @@ export function generateModel(
 	filePath: string,
 	fileContent: string,
 	compilerOptions: ts.CompilerOptions,
+	onModelFile: ((filePath: string) => void) | undefined,
 	pretty: boolean
 ): string | undefined {
 	const f = ts.factory;
@@ -41,7 +42,7 @@ export function generateModel(
 	const srcFileDir = dirname(filePath);
 	mappedFiles.patterns.forEach(function (p) {
 		info('COMPILE PATTERN>>', p);
-		const filePaths = getFilesFromPattern(p, relativeDirname);
+		const filePaths = getFilesFromPattern(p, relativeDirname, onModelFile);
 		//* Create compiler host
 		info('>> Create program...');
 		const pHost = ts.createCompilerHost(compilerOptions, true);

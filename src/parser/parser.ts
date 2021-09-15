@@ -27,10 +27,16 @@ import { _errorFile } from '@src/utils/error';
 import { join } from 'path';
 const { parse: parseJSON } = JSON5;
 
+/** On Model file detected */
+function onModelFileDetected(filePath: string) {
+	console.log('\t>', filePath);
+}
+
 /** Get files from Pattern */
 export function getFilesFromPattern(
 	pattern: string,
-	relativeDirname: string
+	relativeDirname: string,
+	onModelFile: (filePath: string) => void = onModelFileDetected
 ): string[] {
 	var pathPatterns = pattern
 		.slice(1, pattern.length - 1)
@@ -44,7 +50,7 @@ export function getFilesFromPattern(
 			let file = f[j];
 			if (files.includes(file) === false) {
 				files.push(file);
-				console.log('\t>', file);
+				onModelFile(file);
 			}
 		}
 	}
@@ -802,7 +808,10 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					continue;
 				let unionType: ts.TypeNode | undefined = undefined;
 				(node as ts.UnionTypeNode).types.forEach(n => {
-					if (n.kind === ts.SyntaxKind.UndefinedKeyword)
+					if (
+						n.kind === ts.SyntaxKind.UndefinedKeyword ||
+						n.kind === ts.SyntaxKind.NullKeyword
+					)
 						(pDesc as InputField | OutputField).required = false;
 					else if (unionType == null) unionType = n;
 					else

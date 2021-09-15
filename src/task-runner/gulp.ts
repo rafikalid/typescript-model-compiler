@@ -8,9 +8,15 @@ import ts from 'typescript';
 export interface GulpOptions {
 	tsConfig: string | ts.CompilerOptions;
 	pretty: boolean;
+	/** On Model file detected */
+	onModelFile?: (filePath: string) => void;
 }
 /** Adapter for gulp */
-export function createGulpPipe({ tsConfig, pretty = true }: GulpOptions) {
+export function createGulpPipe({
+	tsConfig,
+	pretty = true,
+	onModelFile
+}: GulpOptions) {
 	if (typeof tsConfig === 'string') tsConfig = parseTsConfig(tsConfig);
 
 	return Through.obj(function (
@@ -26,6 +32,7 @@ export function createGulpPipe({ tsConfig, pretty = true }: GulpOptions) {
 					? file.contents.toString('utf-8')
 					: readFileSync(file.path, 'utf-8'),
 				tsConfig as ts.CompilerOptions,
+				onModelFile,
 				pretty
 			);
 			if (typeof content === 'string') {
