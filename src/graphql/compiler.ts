@@ -1245,6 +1245,10 @@ export function toGraphQL(
 				f.createPropertyAssignment(
 					'name',
 					f.createStringLiteral(field.name)
+				),
+				f.createPropertyAssignment(
+					'targetName',
+					f.createStringLiteral(field.alias ?? field.name)
 				)
 			];
 			// Input

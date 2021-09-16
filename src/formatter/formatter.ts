@@ -105,9 +105,9 @@ export function format(
 						f = obj.fields.get(fieldName);
 						inheritedFrom = `${obj.name}.${fieldName}`;
 						if (f == null) {
-							warn(
-								`FORMAT>> Ignored field "${inheritedFrom}" super of "${node.name}.${fieldName}" at ${obj.fileName}`
-							);
+							// warn(
+							// 	`FORMAT>> Ignored field "${inheritedFrom}" super of "${node.name}.${fieldName}" at ${obj.fileName}`
+							// );
 							return;
 						}
 					}

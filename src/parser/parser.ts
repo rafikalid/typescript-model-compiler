@@ -810,7 +810,9 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 				(node as ts.UnionTypeNode).types.forEach(n => {
 					if (
 						n.kind === ts.SyntaxKind.UndefinedKeyword ||
-						n.kind === ts.SyntaxKind.NullKeyword
+						n.kind === ts.SyntaxKind.NullKeyword ||
+						(n.kind === ts.SyntaxKind.LiteralType &&
+							n.getText() === 'null')
 					)
 						(pDesc as InputField | OutputField).required = false;
 					else if (unionType == null) unionType = n;
