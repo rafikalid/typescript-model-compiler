@@ -1051,7 +1051,7 @@ export function toGraphQL(
 	): ts.Expression {
 		if (field.kind === ModelKind.INPUT_FIELD) {
 			let obj: { [k in keyof GraphQLInputFieldConfig]: any } = {
-				type: _compileFieldPart(field.type, true)
+				type: _compileFieldPart(field, true)
 			};
 			if (field.defaultValue != null)
 				obj.defaultValue = field.defaultValue;
@@ -1062,7 +1062,7 @@ export function toGraphQL(
 			return _serializeObject(obj);
 		} else {
 			let obj: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
-				type: _compileFieldPart(field.type, false)
+				type: _compileFieldPart(field, false)
 			};
 			if (field.deprecated != null)
 				obj.deprecationReason = field.deprecated;
@@ -1146,8 +1146,8 @@ export function toGraphQL(
 		let wrappers: number[] = [];
 		// let wrappers= field.required ? [1] : [];
 		while (part.kind !== ModelKind.REF) {
-			if (part.required) wrappers.push(1);
 			if (part.kind === ModelKind.LIST) wrappers.push(0);
+			if (part.required) wrappers.push(1);
 			part = part.type;
 			if (part == null)
 				throw new Error(`Unexpected empty list! at: ${_printStack()}`);
@@ -1166,6 +1166,8 @@ export function toGraphQL(
 					part.name
 				}" at ${_printStack()}`
 			);
+		// Add wrappers: List & NonNullable
+		wrappers.reverse();
 		for (let i = 0, len = wrappers.length; i < len; ++i) {
 			if (wrappers[i] === 0)
 				refNodeVar = f.createNewExpression(GraphQLList, undefined, [
@@ -1235,7 +1237,11 @@ export function toGraphQL(
 		entity: FormattedInputObject,
 		field: formattedInputField
 	): ts.Expression | undefined {
-		if (field.asserts != null || field.validate != null) {
+		if (
+			field.asserts != null ||
+			field.validate != null ||
+			field.alias != null
+		) {
 			// Wrappers (list, required)
 			var fieldProperties: ts.ObjectLiteralElementLike[] = [
 				f.createPropertyAssignment(

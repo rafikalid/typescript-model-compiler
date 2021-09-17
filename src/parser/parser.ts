@@ -813,9 +813,9 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						n.kind === ts.SyntaxKind.NullKeyword ||
 						(n.kind === ts.SyntaxKind.LiteralType &&
 							n.getText() === 'null')
-					)
+					) {
 						(pDesc as InputField | OutputField).required = false;
-					else if (unionType == null) unionType = n;
+					} else if (unionType == null) unionType = n;
 					else
 						throw new Error(
 							`Please give a name to the union "${node.getText()}" at: ${_errorFile(

@@ -2459,10 +2459,10 @@ to-through@^2.0.0:
   dependencies:
     through2 "^2.0.3"
 
-tt-model@^0.0.15:
-  version "0.0.15"
-  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.15.tgz#c4b7590e58c945286ac208c99afed7c44ff5917c"
-  integrity sha512-dSbOOAS4zSF0P9ymONiptuCVkAy/d4PZ9kEUgwaL8LxqVzxpQMoZLm9wTWTQA3EErXYwxNMAJBz+D9ZWj0YrKw==
+tt-model@^0.0.16:
+  version "0.0.16"
+  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.16.tgz#18974692450c3330ea3cc53848213aa3983fe583"
+  integrity sha512-X1ePkiOXMwjsw7TxintJhMoOe9kvYG2D/QtaeMpK3tioLPU79iDTiFDqh6ZupXDCoKXhrqEcCtKnmxF8nFGybg==
   dependencies:
     chalk "^4.1.2"
     glob "^7.1.7"
