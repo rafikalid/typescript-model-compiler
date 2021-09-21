@@ -214,7 +214,8 @@ export function format(
 						escapedName: node.escapedName,
 						deprecated: node.deprecated,
 						jsDoc: nodeJsDoc,
-						fields: inputFields
+						fields: inputFields,
+						validate: node.validate
 					};
 					inputMap.set(nodeName, formattedInputObj);
 				}
@@ -407,7 +408,8 @@ export function format(
 					generics: undefined,
 					inherit: refNode.inherit,
 					ownedFields: refNode.ownedFields,
-					visibleFields: refNode.visibleFields
+					visibleFields: refNode.visibleFields,
+					validate: refNode.validate
 				};
 			}
 			// Push to generics
@@ -455,7 +457,9 @@ export function format(
 			generics: undefined,
 			inherit: partialNode?.inherit,
 			ownedFields: 0,
-			visibleFields: ref.visibleFields
+			visibleFields: ref.visibleFields,
+			// TODO maybe resolve validate cb for @Partial & @Omit
+			validate: undefined
 		};
 		// Return entity
 		return entity;

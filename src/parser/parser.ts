@@ -19,7 +19,8 @@ import {
 	Reference,
 	Scalar,
 	Union,
-	DEFAULT_SCALARS
+	DEFAULT_SCALARS,
+	InputEntityResolver
 } from 'tt-model';
 import JSON5 from 'json5';
 import { info, warn } from '@src/utils/log';
@@ -80,6 +81,8 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 	var nodeName: string | undefined;
 	const namelessEntities: NamelessEntity[] = [];
 	const warns: string[] = [];
+	/** Store entity input resolvers */
+	const entityInputResolvers: InputEntityResolver[] = [];
 	/** Used to generate entity id */
 	rootLoop: while (true) {
 		// get next item
@@ -167,6 +170,10 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 				}
 			}
 		}
+		// ADD decorators as part of description
+		node.decorators?.forEach(function (deco) {
+			jsDoc.push(deco.getText());
+		});
 		// Switch type
 		switch (node.kind) {
 			case ts.SyntaxKind.InterfaceDeclaration:
@@ -256,7 +263,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					throw new Error(
 						`Missing entity name at ${_errorFile(srcFile, node)}`
 					);
-				let entity = ROOT.get(nodeName) as PlainObject;
+				let entity = ROOT.get(nodeName);
 				if (entity == null) {
 					// Add Generic params
 					let generics: string[] | undefined;
@@ -279,12 +286,18 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						generics: generics,
 						visibleFields: visibleFields,
 						fileName: srcFile.fileName,
-						ownedFields: 0
+						ownedFields: 0,
+						validate: undefined
 					};
 					ROOT.set(nodeName, entity);
+				} else if (entity.kind === ModelKind.SCALAR) {
+					// Do nothing, just keep entity as scalar
+					break;
 				} else if (entity.kind !== ModelKind.PLAIN_OBJECT) {
 					throw new Error(
-						`Entities with different types and same name "${nodeName}". last one at ${_errorFile(
+						`Entities with different types [ ${
+							ModelKind[entity.kind]
+						} vs PLAIN_OBJECT ] and same name "${nodeName}". last one at ${_errorFile(
 							srcFile,
 							node
 						)}`
@@ -294,7 +307,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						(entity.inherit ??= []).push(...inherited);
 					entity.deprecated ??= deprecated;
 					visibleFields.forEach((v, k) => {
-						entity.visibleFields.set(k, v);
+						(entity as PlainObject).visibleFields.set(k, v);
 					});
 					// JsDoc
 					entity.jsDoc.push(...jsDoc);
@@ -637,12 +650,13 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 											srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
-								if (ROOT.has(fieldName))
-									throw new Error(
-										`Already defined entity ${fieldName} at ${
-											srcFile.fileName
-										}:${typeArg.getStart()}`
-									);
+								// JUST OVERRIDE WHEN SCALAR :)
+								// if (ROOT.has(fieldName))
+								// 	throw new Error(
+								// 		`Already defined entity ${fieldName} at ${
+								// 			srcFile.fileName
+								// 		}:${typeArg.getStart()}`
+								// 	);
 								let scalarEntity: Scalar = {
 									kind: ModelKind.SCALAR,
 									name: fieldName,
@@ -752,6 +766,34 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 										}
 									}
 								}
+								break;
+							case 'InputResolver':
+								//* Input resolver
+								if (!ts.isTypeReferenceNode(typeArg))
+									throw new Error(
+										`Unexpected entity name: "${fieldName}" at ${
+											srcFile.fileName
+										}:${typeArg.getStart()}`
+									);
+								let inputEntityName =
+									typeChecker.getTypeAtLocation(
+										typeArg.typeName
+									)?.symbol?.name;
+								if (inputEntityName == null)
+									throw new Error(
+										`Could not access entity: "${fieldName}" at ${
+											srcFile.fileName
+										}:${typeArg.getStart()}`
+									);
+								//* Add
+								entityInputResolvers.push({
+									entityName: inputEntityName,
+									fileName: srcFile.fileName,
+									className: nodeName,
+									isStatic: true,
+									name: undefined,
+									isClass: false
+								});
 								break;
 						}
 					}
@@ -970,6 +1012,30 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 				field.className = itemName;
 			});
 		}
+	}
+	//* Add input resolvers for entities
+	for (let i = 0, len = entityInputResolvers.length; i < len; i++) {
+		let resolver = entityInputResolvers[i];
+		let entityName = resolver.entityName;
+		let entityNode = ROOT.get(entityName);
+		if (entityNode == null)
+			throw new Error(
+				`Missing entity ${entityName}. Input resolver at: ${resolver.fileName}`
+			);
+		if (entityNode.kind !== ModelKind.PLAIN_OBJECT) {
+			throw new Error(
+				`Only plain objects could have input resolvers. At: ${resolver.fileName}`
+			);
+		}
+		if (entityNode.validate != null) {
+			throw new Error(
+				`Only one input validator could be defined for object: ${entityName}. Found:\n\t- ${entityInputResolvers
+					.filter(e => e.entityName === entityName)
+					.map(e => e.className + ' @ ' + e.fileName)
+					.join('\t- ')}`
+			);
+		}
+		entityNode.validate = resolver;
 	}
 	return ROOT;
 

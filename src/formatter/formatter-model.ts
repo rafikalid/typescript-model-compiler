@@ -2,11 +2,12 @@ import {
 	BasicScalar,
 	Enum,
 	InputField,
+	MethodDescriptor,
 	ModelKind,
 	OutputField,
 	Scalar,
 	Union,
-	_Node,
+	_Node
 } from 'tt-model';
 
 /** Formatted node */
@@ -39,6 +40,8 @@ export interface FormattedInputObject extends Omit<_Node, 'fileName'> {
 	fields: formattedInputField[];
 	/** Escaped name */
 	escapedName: string;
+	/** Validate entity */
+	validate: MethodDescriptor | undefined;
 }
 
 /** Formatted input field */

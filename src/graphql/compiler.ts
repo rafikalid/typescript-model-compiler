@@ -73,10 +73,10 @@ export function toGraphQL(
 		GraphQLFieldResolver
 	];
 	//* tt-model imports
-	const inputValidationWrapper = f.createUniqueName('inputValidationWrapper');
+	const validateObj = f.createUniqueName('validateObj');
 	const ttModelImports: (string | ts.Identifier)[] = [
-		'inputValidationWrapper',
-		inputValidationWrapper
+		'validateObj',
+		validateObj
 	];
 	//* Other imports
 	const srcImports: Map<
@@ -323,7 +323,11 @@ export function toGraphQL(
 								if (f != null) vfields.push(f);
 							}
 							// add object definition
-							if (vfields.length) {
+							if (
+								vfields.length ||
+								(entity as FormattedInputObject).validate !=
+									null
+							) {
 								let vldVar = f.createUniqueName(entityName);
 								mapVldEntities.set(entity, {
 									var: vldVar,
@@ -1341,27 +1345,101 @@ export function toGraphQL(
 					}". ${_printStack()}`
 				);
 		}
-		//* Collect input resolvers & validation
-		var vr: ParamItem;
-		if (
-			inputEntity != null &&
-			(vr = mapVldEntities.get(inputEntity)!) != null &&
-			vr.len > 0
-		) {
-			resolveCb = f.createCallExpression(
-				inputValidationWrapper,
+		//* Resolver
+		if (ts.isFunctionLike(resolveCb)) {
+		} else {
+			//* Input validation
+			let blk: ts.Statement[] = [];
+			let vldInfo = inputEntity && mapVldEntities.get(inputEntity);
+			// Validate input
+			if (vldInfo?.len! > 0) {
+				blk.push(
+					f.createExpressionStatement(
+						f.createBinaryExpression(
+							f.createIdentifier('args'),
+							f.createToken(ts.SyntaxKind.EqualsToken),
+							f.createAwaitExpression(
+								f.createCallExpression(validateObj, undefined, [
+									vldInfo!.var,
+									f.createIdentifier('args'),
+									f.createIdentifier('ctx'),
+									f.createIdentifier('info')
+								])
+							)
+						)
+					)
+				);
+			}
+			// Return resolver value
+			blk.push(
+				f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
+				f.createReturnStatement(
+					f.createCallExpression(resolveCb, undefined, [
+						f.createIdentifier('parent'),
+						f.createIdentifier('args'),
+						f.createIdentifier('ctx'),
+						f.createIdentifier('info')
+					])
+				)
+			);
+			resolveCb = f.createFunctionExpression(
+				vldInfo?.len! > 0
+					? [f.createModifier(ts.SyntaxKind.AsyncKeyword)]
+					: undefined,
 				undefined,
-				[vr.var, resolveCb]
+				undefined,
+				undefined,
+				[
+					f.createParameterDeclaration(
+						undefined,
+						undefined,
+						undefined,
+						f.createIdentifier('parent'),
+						undefined,
+						f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+						undefined
+					),
+					f.createParameterDeclaration(
+						undefined,
+						undefined,
+						undefined,
+						f.createIdentifier('args'),
+						undefined,
+						f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+						undefined
+					),
+					f.createParameterDeclaration(
+						undefined,
+						undefined,
+						undefined,
+						f.createIdentifier('ctx'),
+						undefined,
+						f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+						undefined
+					),
+					f.createParameterDeclaration(
+						undefined,
+						undefined,
+						undefined,
+						f.createIdentifier('info'),
+						undefined,
+						f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+						undefined
+					)
+				],
+				undefined,
+				f.createBlock(blk, pretty)
 			);
 		}
 		//* Return
-		return f.createAsExpression(
-			resolveCb,
-			f.createTypeReferenceNode(GraphQLFieldResolver, [
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
-			])
-		);
+		return resolveCb;
+		// f.createAsExpression(
+		// 	resolveCb,
+		// 	f.createTypeReferenceNode(GraphQLFieldResolver, [
+		// 		f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+		// 		f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+		// 	])
+		// );
 	}
 }
 
@@ -1411,4 +1489,6 @@ interface ParamItem {
 	var: ts.Identifier;
 	/** Count of validated fields */
 	len: number;
+	/** Has entity validation */
+	//TODO complete this
 }
