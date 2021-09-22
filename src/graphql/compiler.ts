@@ -328,27 +328,34 @@ export function toGraphQL(
 								(entity as FormattedInputObject).validate !=
 									null
 							) {
-								let vldVar = f.createUniqueName(entityName);
-								mapVldEntities.set(entity, {
-									var: vldVar,
-									len: vfields.length
-								});
-								validationDeclarations.push(
-									f.createVariableDeclaration(
-										vldVar,
-										undefined,
-										f.createKeywordTypeNode(
-											ts.SyntaxKind.AnyKeyword
-										),
-										_serializeObject({
-											kind: ModelKind.PLAIN_OBJECT,
-											fields: f.createArrayLiteralExpression(
-												vfields,
-												pretty
-											)
-										})
-									)
-								);
+								let entityDsc = mapVldEntities.get(entity);
+								let vldVar: ts.Identifier;
+								if (entityDsc != null) {
+									vldVar = entityDsc.var;
+									entityDsc.len += vfields.length;
+								} else {
+									vldVar = f.createUniqueName(entityName);
+									mapVldEntities.set(entity, {
+										var: vldVar,
+										len: vfields.length
+									});
+									validationDeclarations.push(
+										f.createVariableDeclaration(
+											vldVar,
+											undefined,
+											f.createKeywordTypeNode(
+												ts.SyntaxKind.AnyKeyword
+											),
+											_serializeObject({
+												kind: ModelKind.PLAIN_OBJECT,
+												fields: f.createArrayLiteralExpression(
+													vfields,
+													pretty
+												)
+											})
+										)
+									);
+								}
 							}
 						}
 					}
@@ -1241,6 +1248,7 @@ export function toGraphQL(
 		entity: FormattedInputObject,
 		field: formattedInputField
 	): ts.Expression | undefined {
+		//TODO resolve subfields
 		if (
 			field.asserts != null ||
 			field.validate != null ||

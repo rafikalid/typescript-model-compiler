@@ -499,6 +499,16 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						inpOut.validate = method;
 						inpOut.alias ??= fieldAlias;
 					}
+					// Resolve parameter as input type
+					let params = (node as ts.MethodDeclaration).parameters;
+					if (params?.[1] == null)
+						warns.push(
+							`Expected input resolver to have second param: "${nodeName}" at ${_errorFile(
+								srcFile,
+								node
+							)}`
+						);
+					else visitor.push(params[1], inpOut, srcFile);
 				} else {
 					//* Output resolver
 					inpOut = field.output;
@@ -527,45 +537,56 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					let params = (node as ts.MethodDeclaration).parameters;
 					if (params?.[1] != null)
 						visitor.push(params[1], inpOut, srcFile);
-				}
-				// Go through results
-				let tp = (node as ts.MethodDeclaration).type;
-				// TODO generate type from return value of methods
-				// (typeChecker.getReturnTypeOfSignature(typeChecker.getSignatureFromDeclaration(node as ts.MethodDeclaration)!).symbol?.declarations?.[0])
-				// typeChecker.getBaseTypes
-				if (tp == null) {
-					// let t= (typeChecker.getReturnTypeOfSignature(typeChecker.getSignatureFromDeclaration(node as ts.MethodDeclaration)!).symbol?.declarations?.[0])
-					// let t= typeChecker.getSignaturesOfType(nodeType, ts.SignatureKind.Call);
-					warns.push(
-						`Please define return type for method "${nodeName}" at ${_errorFile(
-							srcFile,
-							node
-						)}`
-					);
-				} else {
-					visitor.push(tp, inpOut, srcFile);
+					// Go through results
+					let tp = (node as ts.MethodDeclaration).type;
+					// TODO generate type from return value of methods
+					// (typeChecker.getReturnTypeOfSignature(typeChecker.getSignatureFromDeclaration(node as ts.MethodDeclaration)!).symbol?.declarations?.[0])
+					// typeChecker.getBaseTypes
+					if (tp == null) {
+						// let t= (typeChecker.getReturnTypeOfSignature(typeChecker.getSignatureFromDeclaration(node as ts.MethodDeclaration)!).symbol?.declarations?.[0])
+						// let t= typeChecker.getSignaturesOfType(nodeType, ts.SignatureKind.Call);
+						warns.push(
+							`Please define return type for method "${nodeName}" at ${_errorFile(
+								srcFile,
+								node
+							)}`
+						);
+					} else {
+						visitor.push(tp, inpOut, srcFile);
+					}
 				}
 				break;
 			case ts.SyntaxKind.Parameter:
-				if (pDesc == null || pDesc.kind !== ModelKind.OUTPUT_FIELD)
-					throw new Error(
-						`Expected parent as method. Got ${
-							pDesc ? ModelKind[pDesc.kind] : 'nothing'
-						} at ${_errorFile(srcFile, node)}\n${node.getText()}`
-					);
 				let paramNode = node as ts.ParameterDeclaration;
-				nodeName = paramNode.name?.getText();
-				let pRef: Param = {
-					kind: ModelKind.PARAM,
-					name: nodeName,
-					deprecated: deprecated,
-					jsDoc: jsDoc,
-					type: undefined,
-					fileName: srcFile.fileName
-				};
-				pDesc.param = pRef;
-				// Parse param type
-				visitor.push(paramNode.type, pRef, srcFile);
+				switch (pDesc?.kind) {
+					case ModelKind.OUTPUT_FIELD:
+						nodeName = paramNode.name?.getText();
+						let pRef: Param = {
+							kind: ModelKind.PARAM,
+							name: nodeName,
+							deprecated: deprecated,
+							jsDoc: jsDoc,
+							type: undefined,
+							fileName: srcFile.fileName
+						};
+						// Parse param type
+						visitor.push(paramNode.type, pRef, srcFile);
+						pDesc.param = pRef;
+						break;
+					case ModelKind.INPUT_FIELD:
+						// Parse param type
+						visitor.push(paramNode.type, pDesc, srcFile);
+						break;
+					default:
+						throw new Error(
+							`Expected parent as method. Got ${
+								pDesc ? ModelKind[pDesc.kind] : 'nothing'
+							} at ${_errorFile(
+								srcFile,
+								node
+							)}\n${node.getText()}`
+						);
+				}
 				break;
 			case ts.SyntaxKind.EnumDeclaration:
 				let enumNode = node as ts.EnumDeclaration;
