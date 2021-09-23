@@ -1,6 +1,6 @@
 {
 	"name": "tt-model-compiler",
-	"version": "0.0.11",
+	"version": "0.0.12",
 	"description": "Compiler for typescript-model",
 	"main": "dist/index.js",
 	"type": "module",
@@ -28,7 +28,8 @@
 		"gulp": "^4.0.2",
 		"gulp-sourcemaps": "^3.0.0",
 		"gulp-typescript": "^6.0.0-alpha.1",
-		"typescript": "^4.3.5"
+		"typescript": "^4.3.5",
+		"typescript-path-fix": "^1.0.0"
 	},
 	"dependencies": {
 		"chalk": "^4.1.2",

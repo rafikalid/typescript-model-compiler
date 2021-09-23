@@ -1248,14 +1248,75 @@ export function toGraphQL(
 		entity: FormattedInputObject,
 		field: formattedInputField
 	): ts.Expression | undefined {
-		//TODO resolve subfields
+		var fieldProperties: ts.ObjectLiteralElementLike[] = [];
+		//* Asserts
+		let assertTs: ts.MethodDeclaration | undefined;
 		if (
-			field.asserts != null ||
-			field.validate != null ||
-			field.alias != null
+			field.asserts != null &&
+			(assertTs = compileAsserts(
+				`${entity.name}.${field.name}`,
+				field.asserts,
+				field.type,
+				f,
+				pretty
+			)) != null
 		) {
-			// Wrappers (list, required)
-			var fieldProperties: ts.ObjectLiteralElementLike[] = [
+			fieldProperties.push(assertTs);
+		}
+		//* Input field validation
+		if (field.validate != null) {
+			fieldProperties.push(
+				f.createPropertyAssignment(
+					'input',
+					_getMethodCall(field.validate)
+				)
+			);
+		}
+		//* Sub document
+		// Resolve list
+		/** Create step of all embed lists & store if each step has "required" flag */
+		let lstFlags: boolean[] = [];
+		let child: compileTargetTypes = field.type;
+		while (child.kind === ModelKind.LIST) {
+			lstFlags.push(child.required);
+			child = child.type;
+			if (child == null)
+				throw new Error(
+					`Validation>> Unexpected empty list! at ${entity.name}.${field.name}`
+				);
+		}
+		// Resolve reference
+		let refNode = rootInput.get(child.name);
+		if (refNode == null)
+			throw new Error(
+				`Missing entity: ${child.name}. Found at: ${entity.name}.${field.name}`
+			);
+		let refNodeTs: ts.Expression | undefined =
+			mapVldEntities.get(refNode)?.var;
+		if (refNodeTs != null) {
+			lstFlags.reverse();
+			for (let i = 0, len = lstFlags.length; i < len; ++i) {
+				refNodeTs = f.createObjectLiteralExpression(
+					[
+						f.createPropertyAssignment(
+							'kind',
+							f.createNumericLiteral(ModelKind.LIST)
+						),
+						f.createPropertyAssignment(
+							'required',
+							lstFlags[i] ? f.createTrue() : f.createFalse()
+						),
+						f.createPropertyAssignment('type', refNodeTs)
+					],
+					pretty
+				);
+			}
+			fieldProperties.push(f.createPropertyAssignment('type', refNodeTs));
+		}
+
+		//* RETURN RESULT
+		if (fieldProperties.length > 0 || field.alias != null) {
+			fieldProperties.push(
 				f.createPropertyAssignment(
 					'kind',
 					f.createNumericLiteral(ModelKind.INPUT_FIELD)
@@ -1268,70 +1329,7 @@ export function toGraphQL(
 					'targetName',
 					f.createStringLiteral(field.alias ?? field.name)
 				)
-			];
-			// Input
-			if (field.validate != null)
-				fieldProperties.push(
-					f.createPropertyAssignment(
-						'input',
-						_getMethodCall(field.validate)
-					)
-				);
-			// Asserts
-			let assertTs: ts.MethodDeclaration | undefined;
-			if (
-				field.asserts != null &&
-				(assertTs = compileAsserts(
-					`${entity.name}.${field.name}`,
-					field.asserts,
-					field.type,
-					f,
-					pretty
-				)) != null
-			)
-				fieldProperties.push(assertTs);
-			// Lists
-			let child: compileTargetTypes = field.type;
-			var parentProperties = fieldProperties;
-			while (child.kind === ModelKind.LIST) {
-				let properties: ts.ObjectLiteralElementLike[] = [
-					f.createPropertyAssignment(
-						'kind',
-						f.createNumericLiteral(ModelKind.LIST)
-					)
-				];
-				if (child.required)
-					properties.push(
-						f.createPropertyAssignment('required', f.createTrue())
-					);
-				parentProperties.push(
-					f.createPropertyAssignment(
-						'type',
-						f.createObjectLiteralExpression(properties, pretty)
-					)
-				);
-				// Next
-				parentProperties = properties;
-				child = child.type;
-				if (child == null)
-					throw new Error(
-						`Validation>> Unexpected empty list! at ${entity.name}.${field.name}`
-					);
-			}
-			// Resolve reference
-			let refNode = rootInput.get(child.name);
-			if (refNode == null)
-				throw new Error(
-					`Missing entity: ${child.name}. Found at: ${entity.name}.${field.name}`
-				);
-			let refNodeTs: ts.Expression | undefined =
-				mapVldEntities.get(refNode)?.var;
-			if (refNodeTs != null) {
-				parentProperties?.push(
-					f.createPropertyAssignment('type', refNodeTs)
-				);
-			}
-			// return field
+			);
 			return f.createObjectLiteralExpression(fieldProperties, pretty);
 		}
 	}
