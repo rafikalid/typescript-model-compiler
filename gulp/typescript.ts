@@ -28,21 +28,21 @@ const TsProjectCommonjs = GulpTypescript.createProject('tsconfig.json', {
 });
 
 /** Compile as EsNext */
-export function compileEsNext(){
+export function compileEsNext() {
 	return src('src/**/*.ts', {
 		nodir: true,
 		since: lastRun(compileEsNext)
 	})
 		.pipe(SrcMap.init())
-		.pipe(tsPathFix.gulp())
 		.pipe(TsProject())
+		.pipe(tsPathFix.gulp('.mjs'))
 		.pipe(GulpRename({ extname: '.mjs' }))
 		.pipe(SrcMap.write('.'))
 		.pipe(dest('dist/module'));
 }
 
 /** Compile as Commonjs */
-export function compileCommonjs(){
+export function compileCommonjs() {
 	return src('src/**/*.ts', {
 		nodir: true,
 		since: lastRun(compileCommonjs)
