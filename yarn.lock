@@ -2500,10 +2500,10 @@ typedarray@^0.0.6:
   resolved "https://registry.yarnpkg.com/typedarray/-/typedarray-0.0.6.tgz#867ac74e3864187b1d3d47d996a78ec5c8830777"
   integrity sha1-hnrHTjhkGHsdPUfZlqeOxciDB3c=
 
-typescript-path-fix@^1.0.3:
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/typescript-path-fix/-/typescript-path-fix-1.0.3.tgz#4dc1707ad187657f2e0fb6b2fb93c831f89e2c77"
-  integrity sha512-FgBnuajTu1cgxrypmYUKbbqmUZfGXBcb4cUkFI6Qw/XlePeAQ1pYrv7MQZS3sBcI4SMiwkbZ9hlYihcsD6vZGw==
+typescript-path-fix@^1.0.5:
+  version "1.0.5"
+  resolved "https://registry.yarnpkg.com/typescript-path-fix/-/typescript-path-fix-1.0.5.tgz#db9dcf453077bde7a4b4c6a2d965848e3d2a75b4"
+  integrity sha512-vhPq6OJLQTvTIHpOosRJPT9b6WQ5dxzv7AS2ZXSGJlC5cVy9d8qp34w1FOxqir18kDCJhciVDgOleYiAbjz+ZQ==
 
 typescript@^4.3.5:
   version "4.4.2"

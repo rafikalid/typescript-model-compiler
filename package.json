@@ -1,9 +1,9 @@
 {
 	"name": "tt-model-compiler",
-	"version": "0.0.13",
+	"version": "0.0.14",
 	"description": "Compiler for typescript-model",
 	"main": "dist/commonjs/index.js",
-	"exports":{
+	"exports": {
 		"require": "./dist/commonjs/index.js",
 		"import": "./dist/module/index.mjs"
 	},
@@ -34,7 +34,7 @@
 		"gulp-sourcemaps": "^3.0.0",
 		"gulp-typescript": "^6.0.0-alpha.1",
 		"typescript": "^4.3.5",
-		"typescript-path-fix": "^1.0.3"
+		"typescript-path-fix": "^1.0.5"
 	},
 	"dependencies": {
 		"chalk": "^4.1.2",
