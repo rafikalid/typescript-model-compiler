@@ -1315,7 +1315,15 @@ export function toGraphQL(
 		}
 
 		//* RETURN RESULT
-		if (fieldProperties.length > 0 || field.alias != null) {
+		let refNodeKind = refNode.kind;
+		if (
+			fieldProperties.length > 0 ||
+			field.alias != null ||
+			refNodeKind === ModelKind.BASIC_SCALAR ||
+			refNodeKind === ModelKind.ENUM ||
+			refNodeKind === ModelKind.SCALAR ||
+			refNodeKind === ModelKind.UNION
+		) {
 			fieldProperties.push(
 				f.createPropertyAssignment(
 					'kind',
