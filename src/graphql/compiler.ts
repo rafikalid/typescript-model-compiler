@@ -9,6 +9,7 @@ import {
 } from '@src/formatter/formatter-model';
 import {
 	FieldType,
+	GqlObjectNode,
 	InputField,
 	List,
 	MethodDescriptor,
@@ -159,8 +160,8 @@ export function toGraphQL(
 						let expFields: Record<string, ts.Expression> = {};
 						for (
 							let i = 0,
-								fields = entity.fields,
-								len = fields.length;
+							fields = entity.fields,
+							len = fields.length;
 							i < len;
 							++i
 						) {
@@ -223,8 +224,8 @@ export function toGraphQL(
 						);
 						for (
 							let i = 0,
-								fields = entity.fields,
-								len = fields.length;
+							fields = entity.fields,
+							len = fields.length;
 							i < len;
 							++i
 						) {
@@ -275,8 +276,8 @@ export function toGraphQL(
 						let expFields: Record<string, ts.Expression> = {};
 						for (
 							let i = 0,
-								fields = entity.fields,
-								len = fields.length;
+							fields = entity.fields,
+							len = fields.length;
 							i < len;
 							++i
 						) {
@@ -311,8 +312,8 @@ export function toGraphQL(
 							let vfields: ts.Expression[] = [];
 							for (
 								let i = 0,
-									fields = entity.fields,
-									len = fields.length;
+								fields = entity.fields,
+								len = fields.length;
 								i < len;
 								++i
 							) {
@@ -326,7 +327,7 @@ export function toGraphQL(
 							if (
 								vfields.length ||
 								(entity as FormattedInputObject).validate !=
-									null
+								null
 							) {
 								let entityDsc = mapVldEntities.get(entity);
 								let vldVar: ts.Identifier;
@@ -339,6 +340,22 @@ export function toGraphQL(
 										var: vldVar,
 										len: vfields.length
 									});
+									let objD: { [k in keyof GqlObjectNode]: any } = {
+										kind: ModelKind.PLAIN_OBJECT,
+										fields: f.createArrayLiteralExpression(
+											vfields,
+											pretty
+										),
+										before: undefined,
+										after: undefined
+									}
+									// Input validation
+									let entityF = entity as FormattedInputObject;
+									if (entityF.validate != null) {
+										objD.before = _getMethodCall(entityF.validate, 'before');
+										objD.after = _getMethodCall(entityF.validate, 'after');
+									}
+									// Add declaration
 									validationDeclarations.push(
 										f.createVariableDeclaration(
 											vldVar,
@@ -346,13 +363,7 @@ export function toGraphQL(
 											f.createKeywordTypeNode(
 												ts.SyntaxKind.AnyKeyword
 											),
-											_serializeObject({
-												kind: ModelKind.PLAIN_OBJECT,
-												fields: f.createArrayLiteralExpression(
-													vfields,
-													pretty
-												)
-											})
+											_serializeObject(objD)
 										)
 									);
 								}
@@ -587,16 +598,16 @@ export function toGraphQL(
 					let enumValues: ts.PropertyAssignment[] = [];
 					for (
 						let i = 0,
-							members = entity.members,
-							len = members.length;
+						members = entity.members,
+						len = members.length;
 						i < len;
 						++i
 					) {
 						let member = members[i];
 						let obj: { [k in keyof GraphQLEnumValueConfig]: any } =
-							{
-								value: member.value
-							};
+						{
+							value: member.value
+						};
 						if (member.jsDoc.length > 0)
 							obj.description = member.jsDoc.join('\n');
 						if (member.deprecated)
@@ -713,8 +724,7 @@ export function toGraphQL(
 		}
 	} catch (error: any) {
 		throw new Error(
-			`GQL Compile Failed at ${_printStack()}.\nCaused by: ${
-				error?.stack ?? error
+			`GQL Compile Failed at ${_printStack()}.\nCaused by: ${error?.stack ?? error
 			}`
 		);
 	}
@@ -741,7 +751,7 @@ export function toGraphQL(
 	}
 	//* Imports
 	var gqlImportsF: ts.ImportSpecifier[] = [];
-	for (let i = 0, len = gqlImports.length; i < len; ) {
+	for (let i = 0, len = gqlImports.length; i < len;) {
 		gqlImportsF.push(
 			f.createImportSpecifier(
 				f.createIdentifier(gqlImports[i++] as string),
@@ -750,7 +760,7 @@ export function toGraphQL(
 		);
 	}
 	var ttImportsF: ts.ImportSpecifier[] = [];
-	for (let i = 0, len = ttModelImports.length; i < len; ) {
+	for (let i = 0, len = ttModelImports.length; i < len;) {
 		ttImportsF.push(
 			f.createImportSpecifier(
 				f.createIdentifier(ttModelImports[i++] as string),
@@ -982,17 +992,17 @@ export function toGraphQL(
 		scalarDescVar: ts.Identifier
 	) {
 		let uIntConf: { [k in keyof GraphQLScalarTypeConfig<any, any>]: any } =
-			{
-				name: scalarName,
-				parseValue: f.createPropertyAccessExpression(
-					scalarDescVar,
-					f.createIdentifier('parse')
-				),
-				serialize: f.createPropertyAccessExpression(
-					scalarDescVar,
-					f.createIdentifier('serialize')
-				)
-			};
+		{
+			name: scalarName,
+			parseValue: f.createPropertyAccessExpression(
+				scalarDescVar,
+				f.createIdentifier('parse')
+			),
+			serialize: f.createPropertyAccessExpression(
+				scalarDescVar,
+				f.createIdentifier('serialize')
+			)
+		};
 		// if(comment!=null) uIntConf.description= comment;
 		graphqlDeclarations.push(
 			f.createVariableDeclaration(
@@ -1033,10 +1043,10 @@ export function toGraphQL(
 			method.isClass
 				? f.createIdentifier(methodName)
 				: f.createIdentifier(
-						method.isStatic === true
-							? methodName
-							: `prototype.${methodName}`
-				  )
+					method.isStatic === true
+						? methodName
+						: `prototype.${methodName}`
+				)
 		);
 	}
 	/** Get import var from locale source */
@@ -1084,14 +1094,12 @@ export function toGraphQL(
 				let refNode = rootInput.get(ref.name);
 				if (refNode == null)
 					throw new Error(
-						`Unexpected missing entity "${
-							ref.name
+						`Unexpected missing entity "${ref.name
 						}" at ${_printStack()}`
 					);
 				if (refNode.kind !== ModelKind.FORMATTED_INPUT_OBJECT)
 					throw new Error(
-						`Unexpected kind "${ModelKind[refNode.kind]}" of ${
-							field.name
+						`Unexpected kind "${ModelKind[refNode.kind]}" of ${field.name
 						}. Expected "FormattedInputObject" at ${_printStack()}`
 					);
 				let param: Record<string, any> = {};
@@ -1173,8 +1181,7 @@ export function toGraphQL(
 		var refNodeVar: ts.Expression | undefined = mapEntities.get(refNode);
 		if (refNodeVar == null)
 			throw new Error(
-				`Unexpected missing entity var "${
-					part.name
+				`Unexpected missing entity var "${part.name
 				}" at ${_printStack()}`
 			);
 		// Add wrappers: List & NonNullable
@@ -1354,8 +1361,7 @@ export function toGraphQL(
 			) as FormattedInputObject;
 			if (inputEntity.kind !== ModelKind.FORMATTED_INPUT_OBJECT)
 				throw new Error(
-					`Expected kind "FORMATTED_INPUT_OBJECT", received "${
-						ModelKind[inputEntity.kind]
+					`Expected kind "FORMATTED_INPUT_OBJECT", received "${ModelKind[inputEntity.kind]
 					}". ${_printStack()}`
 				);
 		}
@@ -1375,6 +1381,7 @@ export function toGraphQL(
 							f.createAwaitExpression(
 								f.createCallExpression(validateObj, undefined, [
 									vldInfo!.var,
+									f.createIdentifier('parent'),
 									f.createIdentifier('args'),
 									f.createIdentifier('ctx'),
 									f.createIdentifier('info')
@@ -1465,18 +1472,18 @@ export interface GqlCompilerResp {
 /** Queue interface */
 interface QueueInterface {
 	entity:
-		| FormattedOutputNode
-		| FormattedInputNode
-		| formattedInputField
-		| formattedOutputField
-		| FieldType;
+	| FormattedOutputNode
+	| FormattedInputNode
+	| formattedInputField
+	| formattedOutputField
+	| FieldType;
 	isInput: boolean;
 	/** Current field index (plain_object) */
 	index: number;
 	/** Fields with circles */
 	circles:
-		| (formattedInputField | formattedOutputField | Reference)[]
-		| undefined;
+	| (formattedInputField | formattedOutputField | Reference)[]
+	| undefined;
 	// /** Parent node in case of Plain_object */
 	// parent?:		QueueInterface
 }

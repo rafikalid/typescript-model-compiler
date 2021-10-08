@@ -9,6 +9,7 @@ import { info } from '@src/utils/log';
 import { toGraphQL } from '@src/graphql/compiler';
 import { _errorFile } from '@src/utils/error';
 import { getFilesFromPattern } from '..';
+import { printTree } from '@src/utils/console-print';
 
 // import { compileGraphQL } from "@src/graphql/compiler";
 

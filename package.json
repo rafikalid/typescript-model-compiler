@@ -8,7 +8,8 @@
 		"import": "./dist/module/index.mjs"
 	},
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"compile": "gulp --prod"
 	},
 	"repository": {
 		"type": "git",
@@ -27,14 +28,16 @@
 	"devDependencies": {
 		"@types/gulp": "^4.0.8",
 		"@types/gulp-rename": "^2.0.1",
-		"@types/gulp-sourcemaps": "0.0.34",
+		"@types/gulp-sourcemaps": "0.0.35",
 		"@types/through2": "^2.0.36",
+		"@types/uglify-js": "^3.13.1",
 		"gulp": "^4.0.2",
 		"gulp-rename": "^2.0.0",
 		"gulp-sourcemaps": "^3.0.0",
 		"gulp-typescript": "^6.0.0-alpha.1",
 		"typescript": "^4.3.5",
-		"typescript-path-fix": "^1.0.5"
+		"typescript-path-fix": "^1.0.5",
+		"uglify-js": "^3.14.2"
 	},
 	"dependencies": {
 		"chalk": "^4.1.2",
@@ -42,7 +45,7 @@
 		"graphql": "^15.5.1",
 		"json5": "^2.2.0",
 		"through2": "^4.0.2",
-		"tt-model": "^0.0.17",
+		"tt-model": "^0.0.21",
 		"vinyl": "^2.2.1"
 	}
 }
