@@ -187,8 +187,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					)
 				) {
 					warn(
-						`PARSER>> Missing "export" keyword on ${
-							nodeType.isClass() ? 'class' : 'interface'
+						`PARSER>> Missing "export" keyword on ${nodeType.isClass() ? 'class' : 'interface'
 						}: ${nodeName} at ${_errorFile(srcFile, node)}`
 					);
 					continue rootLoop;
@@ -295,8 +294,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					break;
 				} else if (entity.kind !== ModelKind.PLAIN_OBJECT) {
 					throw new Error(
-						`Entities with different types [ ${
-							ModelKind[entity.kind]
+						`Entities with different types [ ${ModelKind[entity.kind]
 						} vs PLAIN_OBJECT ] and same name "${nodeName}". last one at ${_errorFile(
 							srcFile,
 							node
@@ -341,8 +339,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					if (pField.alias == null) pField.alias = fieldAlias;
 					else if (pField.alias !== fieldAlias)
 						throw new Error(
-							`Field ${nodeName} could not have two aliases. got "${
-								pField.alias
+							`Field ${nodeName} could not have two aliases. got "${pField.alias
 							}" and "${fieldAlias}" at ${_errorFile(
 								srcFile,
 								node
@@ -443,8 +440,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					if (field.alias == null) field.alias = fieldAlias;
 					else if (field.alias !== fieldAlias)
 						throw new Error(
-							`Field ${nodeName} could not have two aliases. got "${
-								field.alias
+							`Field ${nodeName} could not have two aliases. got "${field.alias
 							}" and "${fieldAlias}" at ${_errorFile(
 								srcFile,
 								node
@@ -579,8 +575,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						break;
 					default:
 						throw new Error(
-							`Expected parent as method. Got ${
-								pDesc ? ModelKind[pDesc.kind] : 'nothing'
+							`Expected parent as method. Got ${pDesc ? ModelKind[pDesc.kind] : 'nothing'
 							} at ${_errorFile(
 								srcFile,
 								node
@@ -667,8 +662,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 								//* Scalar
 								if (!ts.isTypeReferenceNode(typeArg))
 									throw new Error(
-										`Unexpected scalar name: "${fieldName}" at ${
-											srcFile.fileName
+										`Unexpected scalar name: "${fieldName}" at ${srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
 								// JUST OVERRIDE WHEN SCALAR :)
@@ -698,14 +692,12 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 								//* UNION
 								if (!ts.isTypeReferenceNode(typeArg))
 									throw new Error(
-										`Unexpected UNION name: "${fieldName}" at ${
-											srcFile.fileName
+										`Unexpected UNION name: "${fieldName}" at ${srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
 								if (ROOT.has(fieldName))
 									throw new Error(
-										`Already defined entity ${fieldName} at ${
-											srcFile.fileName
+										`Already defined entity ${fieldName} at ${srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
 								let unionNode: Union = {
@@ -738,8 +730,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									);
 								if (union == null || !ts.isUnionTypeNode(union))
 									throw new Error(
-										`Missing union types for: "${typeArg.getText()}" at ${
-											typeArg.getSourceFile().fileName
+										`Missing union types for: "${typeArg.getText()}" at ${typeArg.getSourceFile().fileName
 										}:${typeArg.getStart()}`
 									);
 								else {
@@ -763,12 +754,10 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 											)
 										)
 											throw new Error(
-												`Illegal union type: ${
-													dec?.getText() ??
-													typeArg.getText()
-												} at ${
-													typeArg.getSourceFile()
-														.fileName
+												`Illegal union type: ${dec?.getText() ??
+												typeArg.getText()
+												} at ${typeArg.getSourceFile()
+													.fileName
 												}:${typeArg.getStart()}`
 											);
 										else {
@@ -792,8 +781,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 								//* Input resolver
 								if (!ts.isTypeReferenceNode(typeArg))
 									throw new Error(
-										`Unexpected entity name: "${fieldName}" at ${
-											srcFile.fileName
+										`Unexpected entity name: "${fieldName}" at ${srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
 								let inputEntityName =
@@ -802,8 +790,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									)?.symbol?.name;
 								if (inputEntityName == null)
 									throw new Error(
-										`Could not access entity: "${fieldName}" at ${
-											srcFile.fileName
+										`Could not access entity: "${fieldName}" at ${srcFile.fileName
 										}:${typeArg.getStart()}`
 									);
 								//* Add
@@ -980,7 +967,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 				);
 				break;
 			case ts.SyntaxKind.TypeOperator:
-				//FIXME check what TypeOperatorNode means?
+				// FIXME check what TypeOperatorNode means?
 				visitor.push(
 					(node as ts.TypeOperatorNode).type,
 					pDesc,
@@ -1108,8 +1095,7 @@ function _compileAsserts(
 		return prevAsserts;
 	} catch (err: any) {
 		throw new Error(
-			`Fail to parse: @assert ${asserts.join('\n')}\n at ${
-				srcFile.fileName
+			`Fail to parse: @assert ${asserts.join('\n')}\n at ${srcFile.fileName
 			}\n\n${err?.stack}`
 		);
 	}
@@ -1126,8 +1112,8 @@ function _getRefVisibleFields(r: ts.Node, typeChecker: ts.TypeChecker) {
 	> = new Map();
 	for (
 		let i = 0,
-			props = typeChecker.getTypeAtLocation(r).getProperties(),
-			len = props.length;
+		props = typeChecker.getTypeAtLocation(r).getProperties(),
+		len = props.length;
 		i < len;
 		++i
 	) {
