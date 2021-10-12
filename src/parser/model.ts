@@ -13,6 +13,8 @@ export enum Kind {
 	INPUT_FIELD,
 	/** Output field */
 	OUTPUT_FIELD,
+	/** Param */
+	PARAM,
 
 	/** Enumeration */
 	ENUM,
@@ -39,17 +41,16 @@ export type Node =
 	| PlainObject
 	| Enum
 	| Union
-	| Scalar;
+	| Scalar
+	| BasicScalar;
 // | ObjectLiteral;
-export type AllNodes = Node | InputField | OutputField | List | Reference;
+export type AllNodes = Node | ObjectLiteral | InputField | OutputField | List | Reference | Param;
 
 /** @abstract basic node */
 export interface _Node {
 	kind: Kind;
 	/** Basic name: may contain special chars like | and <> */
 	name: string;
-	/** Escaped name used as the main name of the entity */
-	escapedName: string;
 	/** JS DOCS */
 	jsDoc: string[];
 	/** Deprecation message when exists */
@@ -59,7 +60,7 @@ export interface _Node {
 }
 
 /** Plain object */
-export interface PlainObject extends Omit<_Node, 'jsDoc'> {
+export interface PlainObject extends Omit<_Node, 'jsDoc' | 'deprecated'> {
 	kind: Kind.PLAIN_OBJECT;
 	/** inheritance: parent classes implemented interfaces */
 	inherit: Reference[] | undefined;
@@ -84,6 +85,8 @@ export interface OutputPlainObject {
 	after: MethodDescriptor | undefined
 	/** JS DOCS */
 	jsDoc: string[];
+	/** Deprecation message when exists */
+	deprecated: string | undefined;
 }
 
 export interface InputPlainObject extends Omit<OutputPlainObject, 'fields'> {
@@ -93,16 +96,16 @@ export interface InputPlainObject extends Omit<OutputPlainObject, 'fields'> {
 
 
 /** Object Literal */
-export interface ObjectLiteral extends _Node {
+export interface ObjectLiteral extends Omit<PlainObject, 'kind'> {
 	kind: Kind.OBJECT_LITERAL;
-	/** Fields: Could be input or output field */
-	fields: Map<string, InputField>;
-	/** Fields count: used to generate indexes for owned fields */
-	ownedFields: number;
+	// /** Fields: Could be input or output field */
+	// fields: Map<string, InputField>;
+	// /** Fields count: used to generate indexes for owned fields */
+	// ownedFields: number;
 }
 
 /** Commons between input and output fields */
-export interface Field {
+export interface Field extends _Node {
 	/** Field index inside it's parent object */
 	idx: number;
 	/** Name of the class */
@@ -124,7 +127,7 @@ export interface InputField extends Field {
 	/** Input Assert */
 	asserts: AssertOptions | undefined;
 	/** Input validator */
-	validate: MethodDescriptor | undefined;
+	method: MethodDescriptor | undefined;
 }
 
 /** Object field */
@@ -133,7 +136,7 @@ export interface OutputField extends Field {
 	/** Resolver method */
 	method: MethodDescriptor | undefined;
 	/** Method main parameter */
-	param: Reference | undefined; // Param is a reference, could not be array or any else.
+	param: Param | undefined; // Param is a reference, could not be array or any else.
 }
 
 
@@ -209,6 +212,12 @@ export interface Scalar extends _Node {
 	parser: MethodDescriptor;
 }
 
+/** Basic scalar */
+export interface BasicScalar extends _Node {
+	kind: Kind.BASIC_SCALAR;
+	name: string;
+}
+
 /** Generic reference or operation: Example: Page<User>, Partial<Booking> */
 export interface Reference {
 	kind: Kind.REF;
@@ -236,3 +245,9 @@ export interface Reference {
 
 /** Field possible types (string means reference) */
 export type FieldType = List | Reference;
+
+/** Param */
+export interface Param extends _Node {
+	kind: Kind.PARAM;
+	type: Reference | undefined;
+}
