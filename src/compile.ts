@@ -193,7 +193,7 @@ export class Compiler {
 
 	/** Resolve patterns, override this if you need to customize this logic */
 	_resolvePatterns(srcFiles: ts.SourceFile[]) {
-		return resolvePatterns(srcFiles, PACKAGE_NAME, 'scan', 'toGraphQL');
+		return resolvePatterns(srcFiles, PACKAGE_NAME, 'Model', 'scan', 'toGraphQL');
 	}
 
 	/** print files  */
@@ -259,7 +259,7 @@ interface ResolvePatterns {
 	resolvedFiles: Set<string>
 }
 /** Resolve patterns */
-export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName: string, ...methods: string[]): Map<string, ResolvePatterns> {
+export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName: string, className: string, ...methods: string[]): Map<string, ResolvePatterns> {
 	const result: Map<string, ResolvePatterns> = new Map();
 	const queue: ts.Node[] = [];
 	const errors: string[] = [];
@@ -267,58 +267,63 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 		try {
 			const srcFile = srcFiles[i];
 			queue.length = 0;
-			queue.push(srcFile);
+			queue.push(...srcFile.getChildren());
+			queue.reverse();
 			const relativeDirname = relative(process.cwd(), dirname(srcFile.fileName));
 			while (queue.length) {
 				let node = queue.pop()!;
 				let ModelVarNames: Set<string> = new Set();
-				if (
-					ts.isImportDeclaration(node) &&
-					node.moduleSpecifier.getText() === packageName
-				) {
-					//* Load names used for "Model"
-					node.importClause?.namedBindings?.forEachChild(function (n) {
-						if (
-							ts.isImportSpecifier(n) &&
-							(n.propertyName ?? n.name).getText() === 'Model'
-						) {
-							ModelVarNames.add(n.name.getText());
-						}
-					});
-				} else if (
-					ts.isCallExpression(node) &&
-					ts.isPropertyAccessExpression(node.expression) &&
-					ModelVarNames.has(node.expression.getFirstToken()!.getText())
-				) {
-					let propName = node.expression.name.getText();
-					if (methods.includes(propName)) {
-						//* Load and unify patterns
-						let patterns: string[] = extractStringArgs(node, srcFile);
-						if (patterns.length === 0) break;
-						let originalPattern = patterns.join(', ');
-						patterns = originalPattern.split(',')
-							.map(e => resolve(relativeDirname, e.trim())) // Get absolute paths
-							.filter((a, i, arr) => arr.indexOf(a) === i) // Remove duplicates
-							.sort((a, b) => a.localeCompare(b)) // sort to get unified form
-						//* Add result
-						let key = patterns.join(',');
-						let v = result.get(key);
-						if (v == null) {
-							let filePaths = _resolveFilesFromPatterns(patterns);
-							if (filePaths.size === 0)
-								throw `No file found for pattern "${originalPattern}" at ${errorFile(srcFile, node)}`;
-							result.set(key, {
-								id: key,
-								patterns,
-								files: [{ srcFile, node, type: propName }],
-								resolvedFiles: filePaths
-							});
-						} else {
-							v.files.push({
-								srcFile, node, type: propName
-							})
+				if (ts.isImportDeclaration(node)) {
+					if (node.moduleSpecifier.getText().slice(1, -1) === packageName) {
+						//* Load names used for "Model"
+						node.importClause?.namedBindings?.forEachChild(function (n) {
+							if (
+								ts.isImportSpecifier(n) &&
+								(n.propertyName ?? n.name).getText() === className
+							) {
+								ModelVarNames.add(n.name.getText());
+							}
+						});
+					}
+				} else if (ts.isCallExpression(node)) {
+					let expr = node.expression;
+					if (
+						ts.isPropertyAccessExpression(expr) &&
+						ts.isIdentifier(expr.expression) &&
+						ModelVarNames.has(expr.expression.getText())
+					) {
+						let propName = expr.name.getText();
+						if (methods.includes(propName)) {
+							//* Load and unify patterns
+							let patterns: string[] = extractStringArgs(node, srcFile);
+							if (patterns.length === 0) break;
+							let originalPattern = patterns.join(', ');
+							patterns = originalPattern.split(',')
+								.map(e => resolve(relativeDirname, e.trim())) // Get absolute paths
+								.filter((a, i, arr) => arr.indexOf(a) === i) // Remove duplicates
+								.sort((a, b) => a.localeCompare(b)) // sort to get unified form
+							//* Add result
+							let key = patterns.join(',');
+							let v = result.get(key);
+							if (v == null) {
+								let filePaths = _resolveFilesFromPatterns(patterns);
+								if (filePaths.size === 0)
+									throw `No file found for pattern "${originalPattern}" at ${errorFile(srcFile, node)}`;
+								result.set(key, {
+									id: key,
+									patterns,
+									files: [{ srcFile, node, type: propName }],
+									resolvedFiles: filePaths
+								});
+							} else {
+								v.files.push({
+									srcFile, node, type: propName
+								})
+							}
 						}
 					}
+				} else {
+					queue.push(...node.getChildren());
 				}
 			}
 		} catch (err: any) {
