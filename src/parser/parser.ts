@@ -1,11 +1,12 @@
 //** PARSE TYPESCRIPT DATA
 
 import { E, errorFile, TError } from "@src/utils/error";
-import { info, warn } from "@src/utils/log";
+import { warn } from "@src/utils/log";
 import ts from "typescript";
 import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, ObjectLiteral, OutputField, Param, PlainObject, Reference, Scalar, Union } from "./model";
 import { NodeVisitor } from "./visitor";
-import { parse as parseYaml } from 'yaml';
+import Yaml from 'yaml';
+const parseYaml = Yaml.parse;
 //@ts-ignore
 import strMath from 'string-math';
 import bytes from 'bytes';
@@ -15,7 +16,6 @@ import { DEFAULT_SCALARS } from "tt-model";
  * Extract Model from typescript code
  */
 export function parse(files: string[], program: ts.Program): Map<string, Node> {
-	info('>> Parsing...');
 	const ROOT: Map<string, Node> = new Map();
 	/** Entities with missing name like Literal objects */
 	const namelessEntities: NamelessEntity[] = [];
