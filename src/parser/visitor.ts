@@ -9,8 +9,6 @@ export interface VisitorEntities {
 	parentDescriptor: AllNodes | undefined;
 	srcFile: ts.SourceFile;
 	isInput: boolean | undefined;
-	/** If export keyword is expected */
-	expectExport: boolean
 	/** Name of the target entity if specified by it's parent */
 	entityName: string | undefined
 }
@@ -32,7 +30,6 @@ export class NodeVisitor {
 	push(
 		nodes: ts.Node | readonly ts.Node[] | undefined,
 		parentDescriptor: AllNodes | undefined,
-		expectExport: boolean,
 		srcFile: ts.SourceFile,
 		isInput?: boolean,
 		entityName?: string
@@ -43,7 +40,6 @@ export class NodeVisitor {
 				queue.push({
 					node: nodes[i],
 					parentDescriptor,
-					expectExport,
 					srcFile,
 					isInput,
 					entityName
@@ -53,7 +49,6 @@ export class NodeVisitor {
 			queue.push({
 				node: nodes as ts.Node,
 				parentDescriptor,
-				expectExport,
 				srcFile,
 				isInput,
 				entityName

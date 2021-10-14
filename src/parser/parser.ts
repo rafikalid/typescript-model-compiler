@@ -26,7 +26,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 	//* Pase file and put root children into visitor's queue
 	for (let i = 0, len = files.length; i < len; ++i) {
 		let srcFile = program.getSourceFile(files[i])!;
-		visitor.push(srcFile.getChildren(), undefined, true, srcFile, undefined);
+		visitor.push(srcFile.getChildren(), undefined, srcFile, undefined);
 	}
 	//* Iterate over all nodes
 	const it = visitor.it();
@@ -35,19 +35,14 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 			//* Get next item
 			let item = it.next();
 			if (item.done) break;
-			let { node, parentDescriptor: pDesc, expectExport, srcFile, isInput, entityName } = item.value;
+			let { node, parentDescriptor: pDesc, srcFile, isInput, entityName } = item.value;
 			let nodeType = typeChecker.getTypeAtLocation(node);
 			let nodeSymbol = nodeType.symbol;
 			let fileName = srcFile.fileName;
-			//* Check for export keyword
-			if (expectExport && !node.modifiers?.some(e => e.kind === ts.SyntaxKind.ExportKeyword)) {
-				warn(`Missing "export" keyword on ${ts.SyntaxKind[node.kind]} at ${errorFile(srcFile, node)}`);
-				continue rootLoop;
-			}
 			//* Extract jsDoc && Metadata
 			let asserts: string[] | undefined;
 			let deprecated: string | undefined;
-			let defaultValue: string | undefined;
+			let defaultValue: any;
 			let fieldAlias: string | undefined;
 			let jsDocTags = ts.getJSDocTags(node);
 			let jsDoc: string[] =
@@ -105,7 +100,15 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						case 'default':
 							if (Array.isArray(tag.comment)) {
 								defaultValue = (tag.comment[0] as ts.JSDocText)
-									.text;
+									.text.trim();
+								if (defaultValue === 'true') defaultValue = true;
+								else if (defaultValue === "false") defaultValue = false;
+								else {
+									try {
+										// If fail to convert to number, keep it string
+										defaultValue = _parseStringValue(defaultValue);
+									} catch (error: any) { }
+								}
 							}
 							break;
 						case 'input':
@@ -129,6 +132,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 			switch (node.kind) {
 				case ts.SyntaxKind.InterfaceDeclaration:
 				case ts.SyntaxKind.ClassDeclaration: {
+					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 					//* Get entity name
 					let entity = node as ts.ClassDeclaration;
 					let realNodeName = entity.name?.getText();
@@ -151,22 +155,22 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									throw `Could not resolve type "${type.expression.getText()}" at ${errorFile(srcFile, type)}`;
 								switch (typeSymbol.name) {
 									case 'ResolverInputConfig':
-									case 'ResolverOutputMethod':
+									case 'ResolverOutputConfig':
 										{
 											if (isInterface)
 												throw `An interface could not extends "${typeSymbol.name}". at ${errorFile(srcFile, type)}`;
-											let isResolverOutputMethod = typeSymbol.name === 'ResolverOutputMethod';
-											if (isInput === isResolverOutputMethod)
-												throw `Could not implement "${typeSymbol.name}" for ${isResolverOutputMethod ? 'output' : 'input'} only entities. at ${errorFile(srcFile, type)}`;
+											let isResolverOutputConfig = typeSymbol.name === 'ResolverOutputConfig';
+											if (isInput === isResolverOutputConfig)
+												throw `Could not implement "${typeSymbol.name}" for ${isResolverOutputConfig ? 'output' : 'input'} only entities. at ${errorFile(srcFile, type)}`;
 											let t = type.typeArguments![0];
 											if (!ts.isTypeReferenceNode(t) || !typeChecker.getTypeFromTypeNode(t).isClassOrInterface())
 												throw `Expected "ResolverInputConfig" argument to reference a "class" or "interface" at ${errorFile(srcFile, t)}`;
 											let typeName = typeChecker.getSymbolAtLocation(t.typeName)!.name;
 											targetEntities.push(typeName);
-											isInput = !isResolverOutputMethod;
+											isInput = !isResolverOutputConfig;
 											// Add to JsDoc
 											jsDoc.push(
-												isResolverOutputMethod ? `@ResolversAt ${realNodeName}` : `@InputResolversAt ${realNodeName}`
+												isResolverOutputConfig ? `@ResolversAt ${realNodeName}` : `@InputResolversAt ${realNodeName}`
 											);
 										}
 										break;
@@ -184,7 +188,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 														: [],
 												visibleFields: undefined
 											};
-											visitor.push(type.typeArguments, nRef, false, srcFile);
+											visitor.push(type.typeArguments, nRef, srcFile);
 											(inherited ??= []).push(nRef);
 											//TODO resolve real nodes names
 											jsDoc.push(`@Extends ${type.getText()}`);
@@ -198,7 +202,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					let visibleFields = _getRefVisibleFields(node, typeChecker);
 					//* Add entity
 					for (let i = 0, len = targetEntities.length; i < len; ++i) {
-						let entityName = targetEntities[i]
+						let entityName = targetEntities[i];
 						let entityDesc = ROOT.get(entityName);
 						if (entityDesc == null) {
 							// Add Generic params
@@ -271,14 +275,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 							}
 						}
 						// Go through properties
-						if (isInput !== false) {
-							// input
-							visitor.push(entity.members, entityDesc, false, srcFile, true);
-						}
-						if (isInput !== true) {
-							// output
-							visitor.push(entity.members, entityDesc, false, srcFile, false);
-						}
+						visitor.push(entity.members, entityDesc, srcFile, isInput);
 					}
 					break;
 				}
@@ -296,13 +293,9 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					let className = propertyNode.parent.name?.getText();
 					if (className == null)
 						throw `Missing class name for method "${nodeName}" at ${errorFile(srcFile, node)}`;
-					//* Input field
-					let fieldParent = isInput ? (pDesc as PlainObject).input : (pDesc as PlainObject).output;
-					let fields = fieldParent.fields;
-					let pField = fields.get(nodeName);
-					let isMethod = node.kind === ts.SyntaxKind.MethodDeclaration;
 					// Method descriptor (if method)
 					let method: MethodDescriptor | undefined;
+					let isMethod = node.kind === ts.SyntaxKind.MethodDeclaration;
 					if (isMethod) {
 						method = {
 							fileName: fileName,
@@ -316,84 +309,99 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 							)
 						};
 					}
-					// Add field
-					if (pField == null) {
-						if (isInput) {
-							let p: Omit<InputField, 'type'> & { type: undefined } = {
-								name: nodeName,
-								kind: Kind.INPUT_FIELD,
-								required: _isFieldRequired(propertyNode, typeChecker),
-								alias: fieldAlias,
-								idx: fieldParent.ownedFields++,
-								className: className,
-								defaultValue: defaultValue,
-								type: undefined,
-								asserts: asserts && _compileAsserts(asserts, undefined, srcFile),
-								deprecated: deprecated,
-								jsDoc: jsDoc.slice(0),
-								method: method,
-								fileNames: [fileName]
+					// Check first for input and then for output
+					for (let j = 0, isSelectInput = false; j < 2; ++j) {
+						// Check if select only input or output
+						if (isInput === !isSelectInput) continue;
+						// Methods are output resolvers by default
+						if (isMethod && isSelectInput && isInput == null) continue;
+						// Get field
+						let fieldParent = isSelectInput ? (pDesc as PlainObject).input : (pDesc as PlainObject).output;
+						let fields = fieldParent.fields;
+						let field = fields.get(nodeName);
+						if (field == null) {
+							if (isSelectInput) {
+								let p: Omit<InputField, 'type'> & { type: undefined } = {
+									name: nodeName,
+									kind: Kind.INPUT_FIELD,
+									required: _isFieldRequired(propertyNode, typeChecker),
+									alias: fieldAlias,
+									idx: fieldParent.ownedFields++,
+									className: className,
+									defaultValue: defaultValue,
+									type: undefined,
+									asserts: asserts && _compileAsserts(asserts, undefined, srcFile, node),
+									deprecated: deprecated,
+									jsDoc: jsDoc.slice(0),
+									method: method,
+									fileNames: [fileName]
+								}
+								field = p as any as InputField;
+							} else {
+								let p: Omit<OutputField, 'type'> & { type: undefined } = {
+									name: nodeName,
+									kind: Kind.OUTPUT_FIELD,
+									required: _isFieldRequired(propertyNode, typeChecker),
+									alias: fieldAlias,
+									idx: fieldParent.ownedFields++,
+									className: className,
+									defaultValue: defaultValue,
+									type: undefined,
+									method: method,
+									param: undefined,
+									deprecated: deprecated,
+									jsDoc: jsDoc.slice(0),
+									fileNames: [fileName]
+								};
+								field = p as any as OutputField;
 							}
-							pField = p as any as InputField;
+							(fields as Map<string, OutputField>).set(nodeName, field as OutputField);
 						} else {
-							let p: Omit<OutputField, 'type'> & { type: undefined } = {
-								name: nodeName,
-								kind: Kind.OUTPUT_FIELD,
-								required: _isFieldRequired(propertyNode, typeChecker),
-								alias: fieldAlias,
-								idx: fieldParent.ownedFields++,
-								className: className,
-								defaultValue: defaultValue,
-								type: undefined,
-								method: method,
-								param: undefined,
-								deprecated: deprecated,
-								jsDoc: jsDoc.slice(0),
-								fileNames: [fileName]
-							};
-							pField = p as any as OutputField;
-						}
-						(fields as Map<string, OutputField>).set(nodeName, pField as OutputField);
-					} else {
-						//* Field alias
-						if (pField.alias == null) pField.alias = fieldAlias;
-						else if (pField.alias !== fieldAlias)
-							throw `Field ${className}.${nodeName} could not have two aliases. got "${pField.alias}" and "${fieldAlias}" at ${errorFile(srcFile, node)}`;
-						pField.deprecated ??= deprecated;
-						pField.jsDoc.push(...jsDoc);
-						pField.fileNames.push(fileName);
-						if (method != null) {
-							if (pField.method != null)
-								throw `Field ${className}.${nodeName} already has a resolver at: ${errorFile(srcFile, node)}. Other files:\n\t> ${pField.fileNames.join("\n\t> ")}`;
-							pField.method = method;
-						}
-						if (isInput) {
-							if (asserts != null) {
-								(pField as InputField).asserts = _compileAsserts(
-									asserts,
-									(pField as InputField).asserts,
-									srcFile
-								);
+							//* Field alias
+							if (field.alias == null) field.alias = fieldAlias;
+							else if (field.alias !== fieldAlias)
+								throw `Field "${className}.${nodeName}" could not have two aliases. got "${field.alias}" and "${fieldAlias}" at ${errorFile(srcFile, node)}`;
+							field.deprecated ??= deprecated;
+							field.jsDoc.push(...jsDoc);
+							field.fileNames.push(fileName);
+							if (method != null) {
+								if (field.method != null)
+									throw `Field "${pDesc.name}.${nodeName}" already has an ${isSelectInput ? 'input' : 'output'
+									} resolver as "${field.method.className}.${field.method.name}" . Got "${className}.${nodeName}" at: ${errorFile(srcFile, node)
+									}. Other files:\n\t> ${field.fileNames.join("\n\t> ")}`;
+								field.method = method;
+							}
+							if (isSelectInput) {
+								if (asserts != null) {
+									(field as InputField).asserts = _compileAsserts(
+										asserts,
+										(field as InputField).asserts,
+										srcFile, node
+									);
+								}
 							}
 						}
-					}
-					if (isMethod) {
-						// Resolve param
-						let param = (node as ts.MethodDeclaration).parameters?.[1];
-						if (param == null) {
-							if (isInput) throw `Expected input resolver to define the second argument at "${className}.${nodeName}" : ${errorFile(srcFile, node)}`;
-						} else {
-							// resolve param as input or output type
-							visitor.push(param, pField, false, srcFile, isInput);
+						// Resolve param for methods
+						if (isMethod) {
+							let param = (node as ts.MethodDeclaration).parameters?.[1];
+							if (param == null) {
+								if (isSelectInput)
+									throw `Missing the second argument of "${className}.${nodeName}" resolver. At ${errorFile(srcFile, node)}`;
+							} else {
+								// resolve param as input or output type
+								visitor.push(param, field, srcFile, isSelectInput);
+							}
 						}
-					}
-					// Resolve type
-					let returnType = propertyNode.type;
-					if (returnType == null) {
-						if (isMethod && !isInput)
-							throw `Please define the return type of method "${className}.${nodeName}" at ${errorFile(srcFile, node)}`;
-					} else if (!isMethod || !isInput) {
-						visitor.push(returnType, pField, false, srcFile, isInput, nodeName);
+						// Resolve type
+						let returnType = propertyNode.type;
+						if (returnType == null) {
+							if (isMethod && !isSelectInput)
+								throw `Missing return value of the method "${className}.${nodeName}" at ${errorFile(srcFile, node)}`;
+						} else if (!isMethod || !isSelectInput) {
+							visitor.push(returnType, field, srcFile, isSelectInput, nodeName);
+						}
+						// Next
+						isSelectInput = true;
 					}
 					break;
 				}
@@ -412,12 +420,12 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 								fileNames: [fileName]
 							};
 							// Parse param type
-							visitor.push(paramNode.type, pRef, false, srcFile, isInput, paramName);
+							visitor.push(paramNode.type, pRef, srcFile, isInput, paramName);
 							pDesc.param = pRef;
 							break;
 						case Kind.INPUT_FIELD:
 							// Parse param type
-							visitor.push(paramNode.type, pDesc, false, srcFile, isInput, paramName);
+							visitor.push(paramNode.type, pDesc, srcFile, isInput, paramName);
 							break;
 						default:
 							throw `Unexpected param parent. got "${Kind[pDesc.kind]}" at ${errorFile(srcFile, node)}`;
@@ -425,6 +433,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					break;
 				}
 				case ts.SyntaxKind.EnumDeclaration: {
+					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 					let enumNode = node as ts.EnumDeclaration;
 					let nodeName = (node as ts.EnumDeclaration).name?.getText();
 					let ref = ROOT.get(nodeName);
@@ -439,7 +448,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						fileNames: [fileName]
 					};
 					ROOT.set(nodeName, enumEntity);
-					visitor.push(node.getChildren(), enumEntity, false, srcFile, isInput);
+					visitor.push(node.getChildren(), enumEntity, srcFile, isInput);
 					break;
 				}
 				case ts.SyntaxKind.EnumMember: {
@@ -471,7 +480,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					let refNode = node as ts.TypeReferenceNode;
 					if (nodeType.getSymbol()?.name === 'Promise') {
 						//* Ignore promise
-						visitor.push(refNode.typeArguments, pDesc, false, srcFile, isInput);
+						visitor.push(refNode.typeArguments, pDesc, srcFile, isInput);
 					} else {
 						let refEnt: Reference = {
 							kind: Kind.REF,
@@ -485,7 +494,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						if (pDesc.kind === Kind.REF) pDesc.params!.push(refEnt);
 						else pDesc.type = refEnt;
 						// Resolve types
-						visitor.push(refNode.typeArguments, refEnt, false, srcFile, isInput);
+						visitor.push(refNode.typeArguments, refEnt, srcFile, isInput);
 					}
 					break;
 				}
@@ -541,7 +550,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					else pDesc.type = arrType;
 					// Visit each children
 					visitor.push(
-						(node as ts.ArrayTypeNode).elementType, arrType, false, srcFile, isInput);
+						(node as ts.ArrayTypeNode).elementType, arrType, srcFile, isInput);
 					break;
 				}
 				case ts.SyntaxKind.VariableStatement: {
@@ -566,6 +575,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 							let fieldName = typeArg.getText();
 							switch (s.name) {
 								case 'ModelScalar': {
+									if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 									//* Scalar
 									if (!ts.isTypeReferenceNode(typeArg))
 										throw `Unexpected scalar name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
@@ -588,6 +598,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									break;
 								}
 								case 'UNION': {
+									if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 									//* UNION
 									if (!ts.isTypeReferenceNode(typeArg))
 										throw `Unexpected UNION name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
@@ -671,6 +682,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 									break;
 								}
 								case 'ResolverConfig': {
+									if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 									//* Input resolver
 									if (!ts.isTypeReferenceNode(typeArg))
 										throw `Unexpected entity name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
@@ -719,10 +731,10 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 										if (!ts.isPropertyAssignment(property)) continue;
 										switch (property.name?.getText()) {
 											case "outputFields":
-												visitor.push(property.initializer, entity, false, srcFile, false, entity.name);
+												visitor.push(property.initializer, entity, srcFile, false, entity.name);
 												break;
 											case 'inputFields':
-												visitor.push(property.initializer, entity, false, srcFile, true, entity.name);
+												visitor.push(property.initializer, entity, srcFile, true, entity.name);
 												break;
 											case 'outputBefore':
 												if (entity.output.before != null)
@@ -783,7 +795,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 					if (pDesc.kind === Kind.PLAIN_OBJECT) {
 						//* Update already defined plain object
 						//TODO check works
-						visitor.push(node.getChildren(), pDesc, false, srcFile, isInput);
+						visitor.push(node.getChildren(), pDesc, srcFile, isInput);
 					} else if (
 						pDesc.kind === Kind.OUTPUT_FIELD ||
 						pDesc.kind === Kind.INPUT_FIELD ||
@@ -833,7 +845,7 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						});
 						pDesc.type = typeRef;
 						// Go through fields
-						visitor.push(node.getChildren(), typeLiteral, false, srcFile, isInput);
+						visitor.push(node.getChildren(), typeLiteral, srcFile, isInput);
 					}
 					break;
 				}
@@ -867,17 +879,17 @@ export function parse(files: string[], program: ts.Program): Map<string, Node> {
 						throw `Please give a name to the union "${nonNullTypes.map(e => e.getText()).join(' | ')}" at ${errorFile(srcFile, node)}`;
 					} else if (nonNullTypes.length === 1) {
 						//* Simple reference
-						visitor.push(nonNullTypes[0], pDesc, false, srcFile, isInput);
+						visitor.push(nonNullTypes[0], pDesc, srcFile, isInput);
 					}
 					break;
 				}
 				case ts.SyntaxKind.TypeOperator:
 					//FIXME Check what TypeOperatorNode do!
 					visitor.push(
-						(node as ts.TypeOperatorNode).type, pDesc, false, srcFile, isInput);
+						(node as ts.TypeOperatorNode).type, pDesc, srcFile, isInput);
 					break;
 				case ts.SyntaxKind.SyntaxList:
-					visitor.push(node.getChildren(), pDesc, false, srcFile, isInput);
+					visitor.push(node.getChildren(), pDesc, srcFile, isInput);
 					break;
 				case ts.SyntaxKind.TupleType:
 					throw `Tuples are unsupported. Did you mean Array of types? at ${errorFile(srcFile, node)}`;
@@ -985,7 +997,8 @@ function _isFieldRequired(propertyNode: ts.PropertyDeclaration, typeChecker: ts.
 function _compileAsserts(
 	asserts: string[],
 	prevAsserts: AssertOptions | undefined,
-	srcFile: ts.SourceFile
+	srcFile: ts.SourceFile,
+	node: ts.Node
 ): AssertOptions | undefined {
 	try {
 		if (asserts.length) {
@@ -996,29 +1009,56 @@ function _compileAsserts(
 		}
 		return prevAsserts;
 	} catch (err: any) {
-		throw `Fail to parse: @assert ${asserts.join('\n')}\n at ${srcFile.fileName}\n\n${err?.stack}`;
+		if (typeof err === 'string')
+			throw `Fail to parse @assert: ${err} At ${errorFile(srcFile, node)}`;
+		else
+			throw `Fail to parse: @assert ${asserts.join('\n')}: ${err?.message ?? err}\nAt ${errorFile(srcFile, node)}`;
 	}
 }
+
+// Assert keys
+const ASSERT_KEYS_TMP: { [k in keyof AssertOptions]-?: 1 } = {
+	min: 1,
+	max: 1,
+	lt: 1,
+	gt: 1,
+	lte: 1,
+	gte: 1,
+	eq: 1,
+	ne: 1,
+	length: 1,
+	regex: 1
+};
+const ASSERT_KEYS = new Set(Object.keys(ASSERT_KEYS_TMP));
 
 /** Evaluate expression */
 function _evaluateString(str: string) {
 	let obj = parseYaml(str);
 	for (let k in obj) {
+		if (!ASSERT_KEYS.has(k)) {
+			if (k.includes(':')) throw `Missing space after symbol ":" on: "${k}"`;
+			throw `Unknown assert's key "${k}"`;
+		}
 		let v = obj[k];
 		if (typeof v === 'number') { }
-		else if (typeof v === 'string') {
-			v = v.trim()
-			// Check for bytes
-			let b = /(.*?)([kmgtp]?b)$/i.exec(v);
-			if (b == null) {
-				v = strMath(v)
-			} else {
-				v = bytes(strMath(b[1]) + b[2]);
-			}
-			obj[k] = v;
-		}
+		else if (typeof v === 'string')
+			obj[k] = _parseStringValue(v);
 		else throw 0;
 	}
+	return obj;
+}
+
+function _parseStringValue(v: string): number {
+	v = v.trim();
+	var result: number;
+	// Check for bytes
+	let b = /(.*?)([kmgtp]?b)$/i.exec(v);
+	if (b == null) {
+		result = strMath(v)
+	} else {
+		result = bytes(strMath(b[1]) + b[2]);
+	}
+	return result;
 }
 
 /** Resolve reference target name */
@@ -1040,4 +1080,17 @@ function _refTargetName(ref: ts.TypeReferenceNode, typeChecker: ts.TypeChecker) 
 			ref.typeName.getText();
 	}
 	return refTextName;
+}
+
+/** Check for export keyword on a node */
+function _hasNtExport(node: ts.Node, srcFile: ts.SourceFile) {
+	//* Check for export keyword
+	var modifiers = node.modifiers;
+	if (modifiers != null) {
+		for (let i = 0, len = modifiers.length; i < len; ++i) {
+			if (modifiers[i].kind === ts.SyntaxKind.ExportKeyword) return false;
+		}
+	}
+	warn(`Missing "export" keyword on ${ts.SyntaxKind[node.kind]} at ${errorFile(srcFile, node)}`);
+	return true;
 }

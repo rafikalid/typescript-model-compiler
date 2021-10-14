@@ -267,12 +267,11 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 		try {
 			const srcFile = srcFiles[i];
 			queue.length = 0;
-			queue.push(...srcFile.getChildren());
-			queue.reverse();
+			queue.push(srcFile);
+			let ModelVarNames: Set<string> = new Set();
 			const relativeDirname = relative(process.cwd(), dirname(srcFile.fileName));
-			while (queue.length) {
-				let node = queue.pop()!;
-				let ModelVarNames: Set<string> = new Set();
+			for (let j = 0; j < queue.length; ++j) {
+				let node = queue[j];
 				if (ts.isImportDeclaration(node)) {
 					if (node.moduleSpecifier.getText().slice(1, -1) === packageName) {
 						//* Load names used for "Model"
