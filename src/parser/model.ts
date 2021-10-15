@@ -33,7 +33,12 @@ export enum Kind {
 	/** Basic scalar */
 	BASIC_SCALAR,
 	/** Reference */
-	REF
+	REF,
+
+	/** Formatted Input object */
+	FORMATTED_OUTPUT_OBJECT,
+	/** Formatted output object */
+	FORMATTED_INPUT_OBJECT
 }
 
 /** Node */
@@ -62,6 +67,8 @@ export interface _Node {
 /** Plain object */
 export interface PlainObject extends Omit<_Node, 'jsDoc' | 'deprecated'> {
 	kind: Kind.PLAIN_OBJECT;
+	/** Escaped name (useful when generics) */
+	escapedName: string;
 	/** inheritance: parent classes implemented interfaces */
 	inherit: Reference[] | undefined;
 	/** In case of generic: Generic keys */

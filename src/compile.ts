@@ -6,6 +6,7 @@ import { info, warn } from "./utils/log";
 import { normalize, resolve, dirname, relative } from 'path';
 import Glob from 'glob';
 import { parse as ParseModelFrom } from './parser/parser';
+import { format as formatModel } from './parser/format';
 import { printTree } from '@src/utils/console-print';
 import Through from 'through2';
 import Vinyl from 'vinyl';
@@ -122,6 +123,9 @@ export class Compiler {
 			// Parse resolved files
 			let root = ParseModelFrom(resolvedFiles, program);
 			console.log('===ROOT===\n', printTree(root, '\t'));
+			// Format data
+			let formatted = formatModel(root);
+			console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
 		}
 
 		let result = this.print(compilerOptions, rootFiles, transpile);

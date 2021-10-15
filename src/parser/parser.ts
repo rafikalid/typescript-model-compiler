@@ -206,7 +206,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 						let entityDesc = ROOT.get(entityName);
 						if (entityDesc == null) {
 							// Add Generic params
-							let generics: string[] | undefined; // TODO generate generics using References
+							let generics: string[] | undefined;
 							let tpParams = entity.typeParameters;
 							if (tpParams != null) {
 								generics = [];
@@ -218,6 +218,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 							let entityD: PlainObject = {
 								kind: Kind.PLAIN_OBJECT,
 								name: entityName,
+								escapedName: entityName,
 								fileNames: [fileName],
 								inherit: inherited,
 								generics: generics,
@@ -696,6 +697,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 										let entityD: PlainObject = {
 											kind: Kind.PLAIN_OBJECT,
 											name: inputEntityName,
+											escapedName: inputEntityName,
 											fileNames: [fileName],
 											inherit: undefined,
 											generics: undefined,
@@ -807,6 +809,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 						let typeLiteral: ObjectLiteral = {
 							kind: Kind.OBJECT_LITERAL,
 							name: entityName,
+							escapedName: entityName,
 							fileNames: [fileName],
 							generics: undefined,
 							inherit: undefined,
