@@ -15,7 +15,7 @@ import { DEFAULT_SCALARS } from "tt-model";
 /**
  * Extract Model from typescript code
  */
-export function parse(files: string[], program: ts.Program): Map<string, Node> {
+export function parse(files: readonly string[], program: ts.Program): Map<string, Node> {
 	const ROOT: Map<string, Node> = new Map();
 	/** Entities with missing name like Literal objects */
 	const namelessEntities: NamelessEntity[] = [];

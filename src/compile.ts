@@ -120,7 +120,7 @@ export class Compiler {
 		for (let i = 0, len = patternItems.length; i < len; ++i) {
 			let { files, patterns, resolvedFiles } = patternItems[i];
 			// Parse resolved files
-			let root = ParseModelFrom(Array.from(resolvedFiles), program);
+			let root = ParseModelFrom(resolvedFiles, program);
 			console.log('===ROOT===\n', printTree(root, '\t'));
 		}
 
@@ -256,7 +256,7 @@ interface ResolvePatterns {
 		type: string
 	}[]
 	/** Resolved file paths by the pattern */
-	resolvedFiles: Set<string>
+	resolvedFiles: string[]
 }
 /** Resolve patterns */
 export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName: string, className: string, ...methods: string[]): Map<string, ResolvePatterns> {
@@ -299,14 +299,16 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 							let originalPattern = patterns.join(', ');
 							patterns = originalPattern.split(',')
 								.map(e => resolve(relativeDirname, e.trim())) // Get absolute paths
-								.filter((a, i, arr) => arr.indexOf(a) === i) // Remove duplicates
-								.sort((a, b) => a.localeCompare(b)) // sort to get unified form
+								.filter((a, i, arr) => arr.indexOf(a) === i); // Remove duplicates
 							//* Add result
-							let key = patterns.join(',');
+							let key = patterns
+								.slice(0) // create copy
+								.sort((a, b) => a.localeCompare(b)) // sort to get unified form
+								.join(',');
 							let v = result.get(key);
 							if (v == null) {
 								let filePaths = _resolveFilesFromPatterns(patterns);
-								if (filePaths.size === 0)
+								if (filePaths.length === 0)
 									throw `No file found for pattern "${originalPattern}" at ${errorFile(srcFile, node)}`;
 								result.set(key, {
 									id: key,
@@ -335,13 +337,14 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 }
 
 /** Resolve files from patterns */
-function _resolveFilesFromPatterns(patterns: string[]): Set<string> {
-	const files: Set<string> = new Set();
+function _resolveFilesFromPatterns(patterns: string[]): string[] {
+	const files: string[] = [];
 	for (let i = 0, len = patterns.length; i < len; ++i) {
 		let f = Glob.sync(patterns[i]);
 		for (let j = 0, jLen = f.length; j < jLen; ++j) {
 			let file = f[j];
-			files.add(file);
+			if (!files.includes(file))
+				files.push(file);
 		}
 	}
 	return files;
