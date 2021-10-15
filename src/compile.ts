@@ -115,6 +115,11 @@ export class Compiler {
 			}
 			return f;
 		};
+		/** Write results */
+		pHost.writeFile = function (fileName: string, data: string, writeByteOrderMark: boolean, onError?: (message: string) => void, sourceFiles?: readonly ts.SourceFile[]) {
+			// Write only to existing files
+			if (mapFiles.has(fileName)) mapFiles.set(fileName, data);
+		};
 		const program = ts.createProgram(Array.from(filePaths), compilerOptions, pHost);
 		//* Go through patterns and parse files
 		info(`Parsing >>`);

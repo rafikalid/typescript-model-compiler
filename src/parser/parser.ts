@@ -2,7 +2,7 @@
 
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
-import ts from "typescript";
+import ts, { isTypeNode } from "typescript";
 import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, ObjectLiteral, OutputField, Param, PlainObject, Reference, Scalar, Union } from "./model";
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
@@ -199,7 +199,8 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 					}
 					if (targetEntities.length === 0) targetEntities.push(entityName);
 					//* Visible fields
-					let visibleFields = _getRefVisibleFields(node, typeChecker);
+					console.log('---Clss---', node.getText());
+					let visibleFields = _getRefVisibleFields(typeChecker.getTypeAtLocation(node));
 					//* Add entity
 					for (let i = 0, len = targetEntities.length; i < len; ++i) {
 						let entityName = targetEntities[i];
@@ -479,24 +480,21 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 					)
 						continue;
 					let refNode = node as ts.TypeReferenceNode;
-					if (nodeType.getSymbol()?.name === 'Promise') {
-						//* Ignore promise
-						visitor.push(refNode.typeArguments, pDesc, srcFile, isInput);
-					} else {
-						let refEnt: Reference = {
-							kind: Kind.REF,
-							fileName: fileName,
-							name: _refTargetName(refNode, typeChecker), // referenced node's name
-							oName: refNode.typeName.getText(),
-							fullName: refNode.getText(),
-							params: refNode.typeArguments == null ? undefined : [],
-							visibleFields: _getRefVisibleFields(refNode, typeChecker)
-						};
-						if (pDesc.kind === Kind.REF) pDesc.params!.push(refEnt);
-						else pDesc.type = refEnt;
-						// Resolve types
-						visitor.push(refNode.typeArguments, refEnt, srcFile, isInput);
-					}
+					console.log('---refNode---', refNode.getText());
+					let refEnt: Reference = {
+						kind: Kind.REF,
+						fileName: fileName,
+						name: _refTargetName(refNode, typeChecker), // referenced node's name
+						oName: refNode.typeName.getText(),
+						fullName: refNode.getText(),
+						params: refNode.typeArguments == null ? undefined : [],
+						visibleFields: _getRefVisibleFields(nodeType)
+					};
+					if (pDesc.kind === Kind.REF) pDesc.params!.push(refEnt);
+					else pDesc.type = refEnt;
+					// Resolve types
+					// visitor.push(refNode.typeArguments, refEnt, srcFile, isInput);
+
 					break;
 				}
 				case ts.SyntaxKind.StringKeyword:
@@ -805,6 +803,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 						pDesc.kind === Kind.PARAM
 					) {
 						entityName ??= '';
+						let nodeType = typeChecker.getTypeAtLocation(node);
 						// Define nameless class
 						let typeLiteral: ObjectLiteral = {
 							kind: Kind.OBJECT_LITERAL,
@@ -820,7 +819,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 								fields: new Map(),
 								jsDoc: jsDoc,
 								ownedFields: 0,
-								visibleFields: _getRefVisibleFields(node, typeChecker)
+								visibleFields: _getRefVisibleFields(nodeType)
 							},
 							output: {
 								after: undefined,
@@ -829,7 +828,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 								fields: new Map(),
 								jsDoc: jsDoc,
 								ownedFields: 0,
-								visibleFields: _getRefVisibleFields(node, typeChecker)
+								visibleFields: _getRefVisibleFields(nodeType)
 							}
 						};
 						let typeRef: Reference = {
@@ -839,7 +838,7 @@ export function parse(files: readonly string[], program: ts.Program): Map<string
 							fileName: srcFile.fileName,
 							params: undefined,
 							fullName: undefined,
-							visibleFields: _getRefVisibleFields(node, typeChecker)
+							visibleFields: _getRefVisibleFields(nodeType)
 						};
 						namelessEntities.push({
 							name: entityName,
@@ -959,35 +958,38 @@ interface NamelessEntity {
 	ref: Reference;
 }
 
-/** Load reference visible fields */
-function _getRefVisibleFields(r: ts.Node, typeChecker: ts.TypeChecker) {
-	var visibleFields: Map<
-		string,
-		{
-			flags: ts.SymbolFlags;
-			className: string;
-		}
-	> = new Map();
-	for (
-		let i = 0,
-		props = typeChecker.getTypeAtLocation(r).getProperties(),
-		len = props.length;
-		i < len;
-		++i
+function _getRefVisibleFields(nodeType: ts.Type) {
+	const nodeSymbol = nodeType.getSymbol();
+	if (
+		nodeSymbol?.name === 'Promise'
 	) {
-		let s = props[i];
-		let clName = (
-			(s.valueDeclaration ?? s.declarations?.[0])
-				?.parent as ts.ClassDeclaration
-		).name?.getText();
-		if (clName != null) {
-			visibleFields.set(s.name, {
-				flags: s.flags,
-				className: clName
-			});
+		console.log('//Goy promise'); //-HERE --------------------
+		// return _getRefVisibleFields(nodeType.);
+		const visibleFields: Map<string, { flags: ts.SymbolFlags; className: string; }> = new Map();
+		return visibleFields;
+	} else {
+		/** Load reference visible fields */
+		const visibleFields: Map<string, { flags: ts.SymbolFlags; className: string; }> = new Map();
+		for (let i = 0, props = nodeType.getProperties(), len = props.length; i < len; ++i) {
+			let s = props[i];
+			let clName = ((s.valueDeclaration ?? s.declarations?.[0])?.parent as ts.ClassDeclaration).name?.getText();
+			if (clName != null) {
+				visibleFields.set(s.name, {
+					flags: s.flags,
+					className: clName
+				});
+			}
 		}
+		// If union
+		if (visibleFields.size === 0 && nodeType.isUnion()) {
+			for (let i = 0, types = nodeType.types, len = types.length; i < len; ++i) {
+				_getRefVisibleFields(types[i]).forEach((v, k) => {
+					visibleFields.set(k, v);
+				});
+			}
+		}
+		return visibleFields;
 	}
-	return visibleFields;
 }
 function _isFieldRequired(propertyNode: ts.PropertyDeclaration, typeChecker: ts.TypeChecker): boolean {
 	if (propertyNode.questionToken) return false;
