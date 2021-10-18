@@ -129,8 +129,8 @@ export class Compiler {
 			let root = ParseModelFrom(resolvedFiles, program);
 			console.log('===ROOT===\n', printTree(root, '\t'));
 			// Format data
-			let formatted = formatModel(root);
-			console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
+			// let formatted = formatModel(root);
+			// console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
 		}
 
 		let result = this.print(compilerOptions, rootFiles, transpile);

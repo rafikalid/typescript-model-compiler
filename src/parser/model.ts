@@ -4,15 +4,23 @@ import ts from "typescript";
 
 /** Kinds */
 export enum Kind {
-	/** Plain object */
-	PLAIN_OBJECT,
-	/** Object literal */
-	OBJECT_LITERAL,
+	/** Input object */
+	INPUT_OBJECT,
+
+	/** Output Object */
+	OUTPUT_OBJECT,
+
+	/** Helper: Input resolvers */
+	INPUT_RESOLVERS,
+
+	/** Helper: Output resolvers */
+	OUTPUT_RESOLVERS,
 
 	/** Input field */
 	INPUT_FIELD,
 	/** Output field */
 	OUTPUT_FIELD,
+
 	/** Param */
 	PARAM,
 
@@ -43,76 +51,67 @@ export enum Kind {
 
 /** Node */
 export type Node =
-	| PlainObject
+	| InputObject
+	| OutputObject
+	| Enum
+	| Union
+	| Scalar
+	| BasicScalar;
+/** Input nodes */
+export type InputNodes =
+	| InputObject
+	| Enum
+	| Union
+	| Scalar
+	| BasicScalar;
+/** Output nodes */
+export type OutputNodes =
+	| OutputObject
 	| Enum
 	| Union
 	| Scalar
 	| BasicScalar;
 // | ObjectLiteral;
-export type AllNodes = Node | ObjectLiteral | InputField | OutputField | List | Reference | Param;
+export type AllNodes = Node | InputField | OutputField | List | Reference | Param;
 
 /** @abstract basic node */
 export interface _Node {
 	kind: Kind;
-	/** Basic name: may contain special chars like | and <> */
+	/** Node's name: may contains special chars like | and <> */
 	name: string;
 	/** JS DOCS */
 	jsDoc: string[];
 	/** Deprecation message when exists */
 	deprecated: string | undefined;
-	/** Files where this entity exists */
+	/** Files where this entity found */
 	fileNames: String[]
 }
 
-/** Plain object */
-export interface PlainObject extends Omit<_Node, 'jsDoc' | 'deprecated'> {
-	kind: Kind.PLAIN_OBJECT;
-	/** Escaped name (useful when generics) */
-	escapedName: string;
-	/** inheritance: parent classes implemented interfaces */
-	inherit: Reference[] | undefined;
-	/** In case of generic: Generic keys */
-	generics: string[] | undefined;
-	/** Input info */
-	input: InputPlainObject
-	/** Output info */
-	output: OutputPlainObject
-}
-
-export interface OutputPlainObject {
+/** Output Object */
+export interface OutputObject extends _Node {
+	kind: Kind.OUTPUT_OBJECT;
+	/** Name without generic parameters */
+	baseName: string;
+	/** inherited classes and interfaces */
+	inherit: string[];
 	/** Fields */
 	fields: Map<string, OutputField>;
-	/** Visible owned and inherited fields with their flags */
-	visibleFields: Map<string, { flags: ts.SymbolFlags; className: string }>;
-	/** Fields count: used to generate indexes for owned fields */
-	ownedFields: number;
 	/** Exec methods before fields validation */
 	before: MethodDescriptor | undefined
 	/** Exec methods After fields validation */
 	after: MethodDescriptor | undefined
-	/** JS DOCS */
-	jsDoc: string[];
-	/** Deprecation message when exists */
-	deprecated: string | undefined;
 }
 
-export interface InputPlainObject extends Omit<OutputPlainObject, 'fields'> {
+/** Input Object  */
+export interface InputObject extends Omit<OutputObject, 'kind' | 'fields'> {
+	kind: Kind.OUTPUT_OBJECT;
 	/** Fields */
-	fields: Map<string, InputField>;
+	fields: Map<string, OutputField>;
 }
 
-
-/** Object Literal */
-export interface ObjectLiteral extends Omit<PlainObject, 'kind'> {
-	kind: Kind.OBJECT_LITERAL;
-	// /** Fields: Could be input or output field */
-	// fields: Map<string, InputField>;
-	// /** Fields count: used to generate indexes for owned fields */
-	// ownedFields: number;
-}
 
 /** Commons between input and output fields */
-export interface Field extends _Node {
+interface _Field extends _Node {
 	/** Field index inside it's parent object */
 	idx: number;
 	/** Name of the class */
@@ -129,7 +128,7 @@ export interface Field extends _Node {
 }
 
 /** Input field */
-export interface InputField extends Field {
+export interface InputField extends _Field {
 	kind: Kind.INPUT_FIELD;
 	/** Input Assert */
 	asserts: AssertOptions | undefined;
@@ -138,7 +137,7 @@ export interface InputField extends Field {
 }
 
 /** Object field */
-export interface OutputField extends Field {
+export interface OutputField extends _Field {
 	kind: Kind.OUTPUT_FIELD;
 	/** Resolver method */
 	method: MethodDescriptor | undefined;
@@ -228,26 +227,22 @@ export interface BasicScalar extends _Node {
 /** Generic reference or operation: Example: Page<User>, Partial<Booking> */
 export interface Reference {
 	kind: Kind.REF;
-	/** Resolved reference name */
+	/** Reference name */
 	name: string;
-	/** Original reference name (effective name in the code) */
-	oName: string;
-	/** Reference full name */
-	fullName: string | undefined;
 	/** source file name. Used for debugger */
 	fileName: string;
-	/** Params in case of generic type */
-	params: FieldType[] | undefined;
-	/** Node: enables us to resolve fields for dynamic fields (like Omit and Partial) */
-	visibleFields:
-	| Map<
-		string,
-		{
-			flags: ts.SymbolFlags;
-			className: string;
-		}
-	>
-	| undefined;
+	// /** Params in case of generic type */
+	// params: FieldType[] | undefined;
+	// /** Node: enables us to resolve fields for dynamic fields (like Omit and Partial) */
+	// visibleFields:
+	// | Map<
+	// 	string,
+	// 	{
+	// 		flags: ts.SymbolFlags;
+	// 		className: string;
+	// 	}
+	// >
+	// | undefined;
 }
 
 /** Field possible types (string means reference) */
