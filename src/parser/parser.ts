@@ -3,7 +3,7 @@
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
 import ts from "typescript";
-import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNodes, OutputNodes, InputObject, OutputObject } from './model';
+import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode } from './model';
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
 const parseYaml = Yaml.parse;
@@ -17,8 +17,8 @@ import { DEFAULT_SCALARS } from "tt-model";
  */
 export function parse(files: readonly string[], program: ts.Program) {
 	//* Init
-	const INPUT_ENTITIES: Map<string, InputNodes> = new Map();
-	const OUTPUT_ENTITIES: Map<string, OutputNodes> = new Map();
+	const INPUT_ENTITIES: Map<string, InputNode> = new Map();
+	const OUTPUT_ENTITIES: Map<string, OutputNode> = new Map();
 	//* Literal objects had no with missing name like Literal objects
 	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean, ref: Reference }[] = [];
 	/** Helper entities */
@@ -36,10 +36,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	//* Pase file and put root children into visitor's queue
 	for (let i = 0, len = files.length; i < len; ++i) {
 		let srcFile = program.getSourceFile(files[i])!;
-		for (let j = 0, children = srcFile.getChildren(), jLen = children.length; j < jLen; ++j) {
-			let node = children[j];
-			visitor.push(node, typeChecker.getTypeAtLocation(node), undefined, srcFile, undefined);
-		}
+		visitor.pushChildren(typeChecker, srcFile, undefined, srcFile, undefined, undefined);
 	}
 	//* Iterate over all nodes
 	const it = visitor.it();
@@ -144,6 +141,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 				case ts.SyntaxKind.ClassDeclaration: {
 					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Ignore if has no export keyword
 					let nodeEntity = node as ts.ClassDeclaration | ts.InterfaceDeclaration;
+					console.log('CLASS>> ', nodeEntity.name?.getText());
 					//* Check if it is a helper entity (class that implements ResolverOutputConfig or ResolverInputConfig)
 					let implementedEntities: string[] | undefined = undefined;
 					let inheritedEntities: string[] | undefined = undefined;
@@ -197,15 +195,92 @@ export function parse(files: readonly string[], program: ts.Program) {
 							}
 						}
 					}
-					// Resolve
-					if (implementedEntities == null) {
-						//* Normal entity
-					} else {
-						//* Helper entity
-						entityName = nodeEntity.name?.getText(); //TODO fix for when using entityConfig
-						if (entityName == null) throw `Unexpected anonymous class at ${errorFile(srcFile, node)}`;
-						HelperEntities.push({ isInput: isInput!, name: entityName, entities: implementedEntities });
+
+					// Get entity name
+					entityName ??= _getNodeName(nodeEntity, srcFile);
+					// let baseName= nodeEntity.name?.getText();
+					// if (baseName == null) throw `Unexpected anonymous class at ${errorFile(srcFile, node)}`;
+					let isResolversImplementation = implementedEntities != null;
+					// Resolve: First we check for INPUT and than for OUTPUT
+					for (let k = 0, isResolveInput = false; k < 2; k++) {
+						// Escape if is explicitly input or output and we checking for other type
+						if (isInput === !isResolveInput) continue;
+						type ObjectType = InputObject | OutputObject;
+						let TARGET_MAP = isResolveInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+						let entity: InputNode | OutputNode | undefined;
+						if (!isResolversImplementation) entity = TARGET_MAP.get(entityName);
+						if (entity == null) {
+							entity = {
+								kind: isResolveInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
+								name: entityName,
+								baseName: nodeEntity.name?.getText()!,
+								fields: new Map(),
+								deprecated: deprecated,
+								fileNames: [fileName],
+								inherit: inheritedEntities,
+								jsDoc: jsDoc,
+								after: undefined,
+								before: undefined
+							};
+							if (isResolversImplementation)
+								HelperEntities.push({
+									isInput: isResolveInput, name: entityName, entities: implementedEntities,
+									entity: entity as ObjectType
+								});
+							else
+								(TARGET_MAP as Map<string, ObjectType>).set(entityName, entity as ObjectType);
+						} else if (entity.kind === Kind.SCALAR) {
+							// Do nothing, just keep entity as scalar
+							break;
+						} else if (entity.kind !== (isResolveInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT)) {
+							throw `Entity "${entityName}" has multiple types:\n\t> ${isResolveInput ? 'INPUT_OBJECT' : 'OUTPUT_OBJECT'
+							} at : ${fileName}\n\t> ${Kind[entity.kind]} at ${entity.fileNames.join(', ')}`;
+						} else {
+							if (inheritedEntities != null)
+								(entity.inherit ??= []).push(...inheritedEntities);
+							entity.fileNames.push(fileName);
+							entity.deprecated ??= deprecated;
+							// JsDoc
+							entity.jsDoc.push(...jsDoc);
+						}
+						// Go through properties
+						for (let i = 0, props = nodeType.getProperties(), len = props.length; i < len; ++i) {
+							let s = props[i];
+							let prop = s.valueDeclaration as ts.PropertyDeclaration;
+							if (prop == null) continue;
+							let propType = typeChecker.getTypeAtLocation(prop);
+							let propTypeNode = typeChecker.typeToTypeNode(propType, node, undefined)
+							if (propTypeNode == null) continue;
+							console.log('>', s.name, ':: ', _getNodeName(prop.type!, srcFile));
+							// Get property type----
+							let tp = typeChecker.getTypeFromTypeNode(prop.type!);
+							if (tp.symbol) {
+								console.log('--x--', tp.symbol.name)
+							}
+							tp.getProperties().forEach(p => {
+								let c = typeChecker.getTypeOfSymbolAtLocation(p, prop);
+								// let pt = typeChecker.typeToTypeNode(
+								// 	typeChecker.getTypeAtLocation((p.valueDeclaration as ts.PropertyDeclaration).type!), targetc, undefined);
+								console.log('==xx==>', p.name, ':', typeChecker.typeToString(c))
+							});
+							// console.log('target>>', targetc == null ? 'NULL' : _getNodeName(targetc, srcFile))
+							// visitor.push(propTypeNode, propType, entity, srcFile, true);
+						}
+						// next: resolve input
+						isResolveInput = true;
 					}
+					break;
+				}
+				case ts.SyntaxKind.SyntaxList:
+					visitor.pushChildren(typeChecker, node, pDesc, srcFile, isInput, undefined);
+					break;
+				case ts.SyntaxKind.TupleType:
+					throw new Error(
+						`Tuples are unsupported, did you mean Array of type? at ${errorFile(srcFile, node)
+						}\n${node.getText()}`
+					);
+				default: {
+					// console.log('--- GOT: ', !!pDesc, ts.SyntaxKind[node.kind]);
 				}
 			}
 		} catch (error: any) {
@@ -245,7 +320,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 		namelessMap.set(tmpN, itemI);
 		node.name = itemName;
 		item.ref.name = itemName;
-		targetMap.set(itemName, node);
+		(targetMap as Map<string, InputObject | OutputObject>).set(itemName, node);
 	}
 	return {
 		input: INPUT_ENTITIES,
@@ -254,8 +329,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 
 	// TODO
 	/** Get entity name */
-	function _getNodeName(node: ts.Node, srcFile: ts.SourceFile) {
-		tsNodePrinter.printNode(ts.EmitHint.Unspecified, node, srcFile);
+	function _getNodeName(node: ts.Node, srcFile: ts.SourceFile): string {
+		return tsNodePrinter.printNode(ts.EmitHint.Unspecified, node, srcFile);
 	}
 }
 
@@ -266,7 +341,9 @@ interface HelperEntity {
 	/** Is input or output */
 	isInput: boolean
 	/** Target entities */
-	entities: string[]
+	entities: string[] | undefined
+	/** Entity */
+	entity: InputObject | OutputObject
 }
 
 function _getRefVisibleFields(nodeType: ts.Type) {

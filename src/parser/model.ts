@@ -58,14 +58,14 @@ export type Node =
 	| Scalar
 	| BasicScalar;
 /** Input nodes */
-export type InputNodes =
+export type InputNode =
 	| InputObject
 	| Enum
 	| Union
 	| Scalar
 	| BasicScalar;
 /** Output nodes */
-export type OutputNodes =
+export type OutputNode =
 	| OutputObject
 	| Enum
 	| Union
@@ -93,7 +93,7 @@ export interface OutputObject extends _Node {
 	/** Name without generic parameters */
 	baseName: string;
 	/** inherited classes and interfaces */
-	inherit: string[];
+	inherit: string[] | undefined;
 	/** Fields */
 	fields: Map<string, OutputField>;
 	/** Exec methods before fields validation */
@@ -104,7 +104,7 @@ export interface OutputObject extends _Node {
 
 /** Input Object  */
 export interface InputObject extends Omit<OutputObject, 'kind' | 'fields'> {
-	kind: Kind.OUTPUT_OBJECT;
+	kind: Kind.INPUT_OBJECT;
 	/** Fields */
 	fields: Map<string, OutputField>;
 }

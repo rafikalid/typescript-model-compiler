@@ -6,7 +6,7 @@ import { info, warn } from "./utils/log";
 import { normalize, resolve, dirname, relative } from 'path';
 import Glob from 'glob';
 import { parse as ParseModelFrom } from './parser/parser';
-import { format as formatModel } from './parser/format';
+// import { format as formatModel } from './parser/format';
 import { printTree } from '@src/utils/console-print';
 import Through from 'through2';
 import Vinyl from 'vinyl';

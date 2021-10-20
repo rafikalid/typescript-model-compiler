@@ -36,7 +36,7 @@ export class NodeVisitor {
 		isInput?: boolean,
 		entityName?: string
 	) {
-		var queue = this._queue;
+		const queue = this._queue;
 		queue.push({
 			node: node,
 			nodeType: nodeType,
@@ -46,5 +46,26 @@ export class NodeVisitor {
 			entityName
 		});
 		return this;
+	}
+	pushChildren(
+		typeChecker: ts.TypeChecker,
+		node: ts.Node,
+		parentDescriptor: AllNodes | undefined,
+		srcFile: ts.SourceFile,
+		isInput?: boolean,
+		entityName?: string
+	) {
+		const queue = this._queue;
+		for (let j = 0, children = node.getChildren(), jLen = children.length; j < jLen; ++j) {
+			let child = children[j];
+			queue.push({
+				node: child,
+				nodeType: typeChecker.getTypeAtLocation(child),
+				parentDescriptor,
+				srcFile,
+				isInput,
+				entityName
+			});
+		}
 	}
 }
