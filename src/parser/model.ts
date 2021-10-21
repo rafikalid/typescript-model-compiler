@@ -106,7 +106,7 @@ export interface OutputObject extends _Node {
 export interface InputObject extends Omit<OutputObject, 'kind' | 'fields'> {
 	kind: Kind.INPUT_OBJECT;
 	/** Fields */
-	fields: Map<string, OutputField>;
+	fields: Map<string, InputField>;
 }
 
 

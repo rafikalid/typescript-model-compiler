@@ -2,7 +2,7 @@
 
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
-import ts from "typescript";
+import ts, { isPropertyName, updateDecorator } from "typescript";
 import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode } from './model';
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
@@ -141,7 +141,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 				case ts.SyntaxKind.ClassDeclaration: {
 					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Ignore if has no export keyword
 					let nodeEntity = node as ts.ClassDeclaration | ts.InterfaceDeclaration;
-					console.log('CLASS>> ', nodeEntity.name?.getText());
 					//* Check if it is a helper entity (class that implements ResolverOutputConfig or ResolverInputConfig)
 					let implementedEntities: string[] | undefined = undefined;
 					let inheritedEntities: string[] | undefined = undefined;
@@ -197,10 +196,16 @@ export function parse(files: readonly string[], program: ts.Program) {
 					}
 
 					// Get entity name
-					entityName ??= _getNodeName(nodeEntity, srcFile);
-					// let baseName= nodeEntity.name?.getText();
-					// if (baseName == null) throw `Unexpected anonymous class at ${errorFile(srcFile, node)}`;
+					if (entityName == null) {
+						if (nodeEntity.name == null) throw `Unexpected anonymous class at ${errorFile(srcFile, node)}`;
+						entityName = nodeEntity.name.getText();
+					}
+					// Check if is entity or entity implementation (ie: resolvers or generic entity)
 					let isResolversImplementation = implementedEntities != null;
+					if (!isResolversImplementation && nodeEntity.typeParameters?.length) {
+						isResolversImplementation = true;
+						implementedEntities = [entityName];
+					}
 					// Resolve: First we check for INPUT and than for OUTPUT
 					for (let k = 0, isResolveInput = false; k < 2; k++) {
 						// Escape if is explicitly input or output and we checking for other type
@@ -246,28 +251,285 @@ export function parse(files: readonly string[], program: ts.Program) {
 						// Go through properties
 						for (let i = 0, props = nodeType.getProperties(), len = props.length; i < len; ++i) {
 							let s = props[i];
-							let prop = s.valueDeclaration as ts.PropertyDeclaration;
-							if (prop == null) continue;
-							let propType = typeChecker.getTypeAtLocation(prop);
-							let propTypeNode = typeChecker.typeToTypeNode(propType, node, undefined)
-							if (propTypeNode == null) continue;
-							console.log('>', s.name, ':: ', _getNodeName(prop.type!, srcFile));
-							// Get property type----
-							let tp = typeChecker.getTypeFromTypeNode(prop.type!);
-							if (tp.symbol) {
-								console.log('--x--', tp.symbol.name)
-							}
-							tp.getProperties().forEach(p => {
-								let c = typeChecker.getTypeOfSymbolAtLocation(p, prop);
-								// let pt = typeChecker.typeToTypeNode(
-								// 	typeChecker.getTypeAtLocation((p.valueDeclaration as ts.PropertyDeclaration).type!), targetc, undefined);
-								console.log('==xx==>', p.name, ':', typeChecker.typeToString(c))
-							});
-							// console.log('target>>', targetc == null ? 'NULL' : _getNodeName(targetc, srcFile))
-							// visitor.push(propTypeNode, propType, entity, srcFile, true);
+							let dec = s.valueDeclaration ?? s.declarations?.[0];
+							if (dec == null) continue;
+							let propType = typeChecker.getTypeOfSymbolAtLocation(s, node);
+							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name);
 						}
 						// next: resolve input
 						isResolveInput = true;
+					}
+					break;
+				}
+				case ts.SyntaxKind.PropertySignature:
+				case ts.SyntaxKind.MethodDeclaration:
+				case ts.SyntaxKind.PropertyDeclaration: {
+					if (pDesc == null) continue;
+					if (
+						pDesc.kind !== Kind.INPUT_OBJECT &&
+						pDesc.kind !== Kind.OUTPUT_OBJECT
+					)
+						continue;
+					if (entityName == null) throw `Unexpected missing field name at ${errorFile(srcFile, node)}`;
+					let propertyNode = node as ts.PropertySignature | ts.MethodDeclaration | ts.PropertyDeclaration;
+					let className = (propertyNode.parent as ts.ClassLikeDeclaration).name?.getText();
+					let method: MethodDescriptor | undefined;
+					let isMethod = node.kind === ts.SyntaxKind.MethodDeclaration;
+					if (isMethod) {
+						if (className == null) throw `Missing class name for method "${pDesc.name}.${entityName}" at ${errorFile(srcFile, node)}`;
+						method = {
+							fileName: fileName,
+							className: className,
+							name: entityName,
+							isStatic: node.modifiers?.some(
+								n => n.kind === ts.SyntaxKind.StaticKeyword
+							) ?? false,
+							isClass: ts.isClassDeclaration(node.parent) && !node.parent.modifiers?.some(
+								e => e.kind === ts.SyntaxKind.AbstractKeyword
+							)
+						};
+					}
+					// Create field
+					let fields = pDesc.fields;
+					let field = fields.get(entityName);
+					if (field == null) {
+						if (isInput) {
+							let p: Omit<InputField, 'type'> & { type: undefined } = {
+								kind: Kind.INPUT_FIELD,
+								name: entityName,
+								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
+								alias: fieldAlias,
+								idx: 0, // TODO Fix idx
+								className: className,
+								defaultValue: defaultValue,
+								type: undefined,
+								asserts: asserts && _compileAsserts(asserts, undefined, srcFile, node),
+								deprecated: deprecated,
+								jsDoc: jsDoc,
+								method: method,
+								fileNames: [fileName]
+							};
+							field = p as any as InputField | OutputField
+						} else {
+							let p: Omit<OutputField, 'type'> & { type: undefined } = {
+								name: entityName,
+								kind: Kind.OUTPUT_FIELD,
+								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
+								alias: fieldAlias,
+								idx: 0, // TODO Fix idx
+								className: className,
+								defaultValue: defaultValue,
+								type: undefined,
+								method: method,
+								param: undefined,
+								deprecated: deprecated,
+								jsDoc: jsDoc,
+								fileNames: [fileName]
+							};
+							field = p as any as InputField | OutputField;
+						}
+						(fields as Map<string, OutputField | InputField>).set(entityName, field);
+					} else {
+						//* Field alias
+						if (field.alias == null) field.alias = fieldAlias;
+						else if (field.alias !== fieldAlias)
+							throw `Field "${className}.${entityName}" could not have two aliases. got "${field.alias}" and "${fieldAlias}" at ${errorFile(srcFile, node)}`;
+						field.deprecated ??= deprecated;
+						field.jsDoc.push(...jsDoc);
+						field.fileNames.push(fileName);
+						if (method != null) {
+							if (field.method != null)
+								throw `Field "${pDesc.name}.${entityName}" already has an ${isInput ? 'input' : 'output'
+								} resolver as "${field.method.className}.${field.method.name}" . Got "${className}.${entityName}" at: ${errorFile(srcFile, node)
+								}. Other files:\n\t> ${field.fileNames.join("\n\t> ")}`;
+							field.method = method;
+						}
+						if (isInput) {
+							if (asserts != null) {
+								(field as InputField).asserts = _compileAsserts(
+									asserts,
+									(field as InputField).asserts,
+									srcFile, node
+								);
+							}
+						}
+					}
+					// Resolve param for methods
+					if (isMethod) {
+						let param = (node as ts.MethodDeclaration).parameters?.[1];
+						if (param == null) {
+							if (isInput)
+								throw `Missing the second argument of "${className}.${entityName}" resolver. At ${errorFile(srcFile, node)}`;
+						} else {
+							// resolve param as input or output type
+							visitor.push(param, typeChecker.getTypeAtLocation(param), field, srcFile, isInput, entityName);
+						}
+					}
+					// Resolve type
+					if (propertyNode.type == null) {
+						// TODO get implicit return value from method signature
+						if (isMethod && !isInput)
+							throw `Missing return value of the method "${className}.${entityName}" at ${errorFile(srcFile, node)}`;
+					} else if (!isMethod || !isInput) {
+						visitor.push(propertyNode.type, typeChecker.getTypeAtLocation(propertyNode.type), field, srcFile, isInput, entityName);
+					}
+					break;
+				}
+				case ts.SyntaxKind.Parameter: {
+					if (pDesc == null) continue; // Unexpected!
+					let paramNode = node as ts.ParameterDeclaration;
+					let paramName = paramNode.name?.getText();
+					switch (pDesc.kind) {
+						case Kind.OUTPUT_FIELD:
+							let pRef: Param = {
+								kind: Kind.PARAM,
+								name: paramName,
+								deprecated: deprecated,
+								jsDoc: jsDoc,
+								type: undefined,
+								fileNames: [fileName]
+							};
+							// Parse param type
+							if (paramNode.type != null)
+								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pRef, srcFile, isInput, paramName);
+							pDesc.param = pRef;
+							break;
+						case Kind.INPUT_FIELD:
+							// Parse param type
+							if (paramNode.type != null)
+								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pDesc, srcFile, isInput, paramName);
+							break;
+						default:
+							throw `Unexpected param parent. Got "${Kind[pDesc.kind]}" at ${errorFile(srcFile, node)}`;
+					}
+					break;
+				}
+				case ts.SyntaxKind.TypeReference: {
+					if (pDesc == null) continue;
+					if (
+						pDesc.kind !== Kind.OUTPUT_FIELD &&
+						pDesc.kind !== Kind.INPUT_FIELD &&
+						pDesc.kind !== Kind.LIST &&
+						// pDesc.kind !== Kind.REF &&
+						pDesc.kind !== Kind.PARAM
+					)
+						continue;
+					let refNode = node as ts.TypeReferenceNode;
+					if (refNode.typeArguments?.length === 1 && refNode.typeName.getText() === 'Promise') {
+						let tp = refNode.typeArguments[0];
+						visitor.push(tp, typeChecker.getTypeAtLocation(tp), pDesc, srcFile, isInput, entityName);
+					} else {
+						let refName = _getNodeName(refNode, srcFile); // referenced node's name
+						let refEnt: Reference = {
+							kind: Kind.REF,
+							fileName: fileName,
+							name: refName
+							// fullName: refNode.getText(),
+							// params: refNode.typeArguments == null ? undefined : [],
+							// visibleFields: _getRefVisibleFields(nodeType)
+						};
+						pDesc.type = refEnt;
+						// Resolve type
+						let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+						//TODO resolve type
+						if (!targetMap.has(refName)) {
+							let stp = typeChecker.getTypeAtLocation(refNode);
+							console.log('symb:', stp.symbol?.name)
+							stp.getProperties().forEach((s) => {
+								console.log('=====PROP: ', s.name)
+							});
+
+
+							let refSymbol = typeChecker.getSymbolAtLocation(refNode.typeName);
+							if (refSymbol == null) throw `Could not resolve type of "${refName}" at ${errorFile(srcFile, node)}`;
+							let refType = typeChecker.getTypeOfSymbolAtLocation(refSymbol, node);
+							let refTypeNode = typeChecker.typeToTypeNode(refType, refNode, ts.NodeBuilderFlags.AllowUniqueESSymbolType);
+							console.log('=> resolve: ', refName, '>', refSymbol.name, '|', refTypeNode && _getNodeName(refTypeNode, srcFile));
+
+						}
+						// Resolve types
+						// visitor.push(refNode.typeArguments, refEnt, srcFile, isInput);
+					}
+					break;
+				}
+				case ts.SyntaxKind.StringKeyword:
+				case ts.SyntaxKind.BooleanKeyword:
+				case ts.SyntaxKind.NumberKeyword:
+				case ts.SyntaxKind.SymbolKeyword:
+				case ts.SyntaxKind.BigIntKeyword: {
+					if (pDesc == null) continue;
+					if (
+						pDesc.kind !== Kind.OUTPUT_FIELD &&
+						pDesc.kind !== Kind.INPUT_FIELD &&
+						pDesc.kind !== Kind.LIST &&
+						// pDesc.kind !== Kind.REF &&
+						pDesc.kind !== Kind.PARAM
+					)
+						continue;
+					let nodeName = node.getText();
+					pDesc.type = {
+						kind: Kind.REF,
+						name: nodeName,
+						fileName: srcFile.fileName
+					};
+					break;
+				}
+				case ts.SyntaxKind.ArrayType: {
+					if (pDesc == null) continue;
+					if (
+						pDesc.kind !== Kind.OUTPUT_FIELD &&
+						pDesc.kind !== Kind.INPUT_FIELD &&
+						pDesc.kind !== Kind.LIST &&
+						pDesc.kind !== Kind.PARAM
+					)
+						continue;
+					let arrTpe: Omit<List, 'type'> & { type: undefined } = {
+						kind: Kind.LIST,
+						required: true, // TODO find a solution to make list content nullable
+						deprecated: deprecated,
+						jsDoc: jsDoc,
+						fileNames: [fileName],
+						type: undefined
+					};
+					let arrType = arrTpe as any as List;
+					pDesc.type = arrType;
+					// Visit each children
+					let arrEl = (node as ts.ArrayTypeNode).elementType;
+					visitor.push(arrEl, typeChecker.getTypeAtLocation(arrEl), arrType, srcFile, isInput, entityName);
+					break;
+				}
+				case ts.SyntaxKind.UnionType: {
+					if (pDesc == null) continue;
+					if (
+						pDesc.kind !== Kind.OUTPUT_FIELD &&
+						pDesc.kind !== Kind.INPUT_FIELD &&
+						pDesc.kind !== Kind.LIST &&
+						pDesc.kind !== Kind.PARAM
+					)
+						continue;
+					let unionNode = node as ts.UnionTypeNode;
+					let nonNullTypes: ts.TypeNode[] = []
+					for (let i = 0, types = unionNode.types, len = types.length; i < len; ++i) {
+						let type = types[i];
+						if (
+							type.kind === ts.SyntaxKind.UndefinedKeyword ||
+							type.kind === ts.SyntaxKind.NullKeyword ||
+							(type.kind === ts.SyntaxKind.LiteralType &&
+								type.getText() === 'null')
+						) {
+							(pDesc as InputField | OutputField).required = false;
+						} else {
+							nonNullTypes.push(type);
+						}
+					}
+					if (nonNullTypes.length > 1) {
+						//* Defined union
+						// TODO support native unions
+						throw `Please give a name to the union "${_getNodeName(unionNode, srcFile)}" at ${errorFile(srcFile, node)}`;
+					} else if (nonNullTypes.length === 1) {
+						//* Simple reference
+						let tp = nonNullTypes[0]
+						visitor.push(tp, typeChecker.getTypeAtLocation(tp), pDesc, srcFile, isInput, entityName);
 					}
 					break;
 				}
@@ -454,7 +716,7 @@ function _parseStringValue(v: string): number {
 	return result;
 }
 
-/** Resolve reference target name */
+/** Resolve reference target name @deprecated */
 function _refTargetName(ref: ts.TypeReferenceNode, typeChecker: ts.TypeChecker) {
 	let refTypeSymb = typeChecker.getTypeAtLocation(ref.typeName).symbol;
 	let refTargetNode =
