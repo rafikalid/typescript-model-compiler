@@ -10,6 +10,8 @@ export interface VisitorEntities {
 	parentDescriptor: AllNodes | undefined;
 	srcFile: ts.SourceFile;
 	isInput: boolean | undefined;
+	/** If this class is a helper class that contains resolves of an other class */
+	isResolversImplementation: boolean | undefined;
 	/** Name of the target entity if specified by it's parent */
 	entityName: string | undefined
 }
@@ -34,7 +36,8 @@ export class NodeVisitor {
 		parentDescriptor: AllNodes | undefined,
 		srcFile: ts.SourceFile,
 		isInput?: boolean,
-		entityName?: string
+		entityName?: string,
+		isResolversImplementation?: boolean
 	) {
 		const queue = this._queue;
 		queue.push({
@@ -43,7 +46,8 @@ export class NodeVisitor {
 			parentDescriptor,
 			srcFile,
 			isInput,
-			entityName
+			entityName,
+			isResolversImplementation
 		});
 		return this;
 	}
@@ -53,7 +57,8 @@ export class NodeVisitor {
 		parentDescriptor: AllNodes | undefined,
 		srcFile: ts.SourceFile,
 		isInput?: boolean,
-		entityName?: string
+		entityName?: string,
+		isResolversImplementation?: boolean
 	) {
 		const queue = this._queue;
 		for (let j = 0, children = node.getChildren(), jLen = children.length; j < jLen; ++j) {
@@ -64,7 +69,8 @@ export class NodeVisitor {
 				parentDescriptor,
 				srcFile,
 				isInput,
-				entityName
+				entityName,
+				isResolversImplementation
 			});
 		}
 	}

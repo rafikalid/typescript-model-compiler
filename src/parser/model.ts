@@ -91,7 +91,7 @@ export interface _Node {
 export interface OutputObject extends _Node {
 	kind: Kind.OUTPUT_OBJECT;
 	/** Name without generic parameters */
-	baseName: string;
+	baseName: string | undefined;
 	/** inherited classes and interfaces */
 	inherit: string[] | undefined;
 	/** Fields */

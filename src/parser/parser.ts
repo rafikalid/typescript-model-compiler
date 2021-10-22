@@ -2,7 +2,7 @@
 
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
-import ts, { isPropertyName, updateDecorator } from "typescript";
+import ts from "typescript";
 import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode } from './model';
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
@@ -45,7 +45,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 			//* Get next item
 			let item = it.next();
 			if (item.done) break;
-			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName } = item.value;
+			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation } = item.value;
 			let nodeSymbol = nodeType.symbol;
 			let fileName = srcFile.fileName;
 			//* Extract jsDoc && Metadata
@@ -54,17 +54,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 			let defaultValue: any;
 			let fieldAlias: string | undefined;
 			let jsDocTags = ts.getJSDocTags(node);
-			let jsDoc: string[] = nodeSymbol?.getDocumentationComment(typeChecker)
-				.map(e => e.text) ?? [
-					(
-						node
-							.getChildren()
-							.find(
-								e => e.kind === ts.SyntaxKind.JSDocComment
-							) as ts.JSDoc
-					)?.comment
-				] ??
-				[];
+			let jsDoc: string[] = nodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
+			//  -?? [
+			// 	(
+			// 		node
+			// 			.getChildren()
+			// 			.find(
+			// 				e => e.kind === ts.SyntaxKind.JSDocComment
+			// 			) as ts.JSDoc
+			// 	)?.comment
+			// ] ??
+			// [];
 			// Parse JsDocTags
 			if (jsDocTags.length) {
 				for (let i = 0, len = jsDocTags.length; i < len; ++i) {
@@ -201,9 +201,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 						entityName = nodeEntity.name.getText();
 					}
 					// Check if is entity or entity implementation (ie: resolvers or generic entity)
-					let isResolversImplementation = implementedEntities != null;
-					if (!isResolversImplementation && nodeEntity.typeParameters?.length) {
-						isResolversImplementation = true;
+					let isImplementation = implementedEntities != null;
+					isResolversImplementation = isImplementation;
+					if (!isImplementation && nodeEntity.typeParameters?.length) {
+						isImplementation = true;
 						implementedEntities = [entityName];
 					}
 					// Resolve: First we check for INPUT and than for OUTPUT
@@ -213,7 +214,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						type ObjectType = InputObject | OutputObject;
 						let TARGET_MAP = isResolveInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 						let entity: InputNode | OutputNode | undefined;
-						if (!isResolversImplementation) entity = TARGET_MAP.get(entityName);
+						if (!isImplementation) entity = TARGET_MAP.get(entityName);
 						if (entity == null) {
 							entity = {
 								kind: isResolveInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
@@ -227,7 +228,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								after: undefined,
 								before: undefined
 							};
-							if (isResolversImplementation)
+							if (isImplementation)
 								HelperEntities.push({
 									isInput: isResolveInput, name: entityName, entities: implementedEntities,
 									entity: entity as ObjectType
@@ -254,7 +255,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let dec = s.valueDeclaration ?? s.declarations?.[0];
 							if (dec == null) continue;
 							let propType = typeChecker.getTypeOfSymbolAtLocation(s, node);
-							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name);
+							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name, isResolversImplementation);
 						}
 						// next: resolve input
 						isResolveInput = true;
@@ -276,18 +277,22 @@ export function parse(files: readonly string[], program: ts.Program) {
 					let method: MethodDescriptor | undefined;
 					let isMethod = node.kind === ts.SyntaxKind.MethodDeclaration;
 					if (isMethod) {
-						if (className == null) throw `Missing class name for method "${pDesc.name}.${entityName}" at ${errorFile(srcFile, node)}`;
-						method = {
-							fileName: fileName,
-							className: className,
-							name: entityName,
-							isStatic: node.modifiers?.some(
-								n => n.kind === ts.SyntaxKind.StaticKeyword
-							) ?? false,
-							isClass: ts.isClassDeclaration(node.parent) && !node.parent.modifiers?.some(
-								e => e.kind === ts.SyntaxKind.AbstractKeyword
-							)
-						};
+						if (isResolversImplementation) {
+							if (className == null) throw `Missing class name for method "${pDesc.name}.${entityName}" at ${errorFile(srcFile, node)}`;
+							method = {
+								fileName: fileName,
+								className: className,
+								name: entityName,
+								isStatic: node.modifiers?.some(
+									n => n.kind === ts.SyntaxKind.StaticKeyword
+								) ?? false,
+								isClass: ts.isClassDeclaration(node.parent) && !node.parent.modifiers?.some(
+									e => e.kind === ts.SyntaxKind.AbstractKeyword
+								)
+							};
+						} else {
+							continue rootLoop; // Ignore this method cause it's only an instance method
+						}
 					}
 					// Create field
 					let fields = pDesc.fields;
@@ -414,12 +419,34 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.PARAM
 					)
 						continue;
-					let refNode = node as ts.TypeReferenceNode;
-					if (refNode.typeArguments?.length === 1 && refNode.typeName.getText() === 'Promise') {
-						let tp = refNode.typeArguments[0];
-						visitor.push(tp, typeChecker.getTypeAtLocation(tp), pDesc, srcFile, isInput, entityName);
+					let refTypes = _removePromiseAndNull(nodeType);
+					// Check if array list
+					console.log('=====================', typeChecker.typeToString(nodeType));
+					let allAreArrays = true;
+					let arrTypeNodes: ts.ArrayTypeNode[] = [];
+					for (let i = 0, len = refTypes.length; i < len; ++i) {
+						let t = refTypes[i];
+						let tNode: ts.TypeNode | undefined;
+						if (
+							t.symbol == null ||
+							(tNode = typeChecker.typeToTypeNode(t, t.symbol.valueDeclaration, ts.NodeBuilderFlags.AllowUniqueESSymbolType)) == null ||
+							!ts.isArrayTypeNode(tNode)
+						) {
+							allAreArrays = false;
+							break;
+						} else {
+							arrTypeNodes.push(tNode);
+						}
+					}
+					if (allAreArrays) {
+						//* Array
+						let arrTypeNode: ts.ArrayTypeNode;
+						if (arrTypeNodes.length === 1) arrTypeNode = arrTypeNodes[0];
+						else arrTypeNode = factory.createArrayTypeNode(factory.createUnionTypeNode(arrTypeNodes.map(t => t.elementType)));
+						visitor.push(arrTypeNode, typeChecker.getTypeFromTypeNode(arrTypeNode), pDesc, srcFile, isInput, entityName);
 					} else {
-						let refName = _getNodeName(refNode, srcFile); // referenced node's name
+						//* Reference
+						let refName = _getNodeName(node, srcFile); // referenced node's name
 						let refEnt: Reference = {
 							kind: Kind.REF,
 							fileName: fileName,
@@ -433,22 +460,48 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 						//TODO resolve type
 						if (!targetMap.has(refName)) {
-							let stp = typeChecker.getTypeAtLocation(refNode);
-							console.log('symb:', stp.symbol?.name)
-							stp.getProperties().forEach((s) => {
-								console.log('=====PROP: ', s.name)
-							});
-
-
-							let refSymbol = typeChecker.getSymbolAtLocation(refNode.typeName);
-							if (refSymbol == null) throw `Could not resolve type of "${refName}" at ${errorFile(srcFile, node)}`;
-							let refType = typeChecker.getTypeOfSymbolAtLocation(refSymbol, node);
-							let refTypeNode = typeChecker.typeToTypeNode(refType, refNode, ts.NodeBuilderFlags.AllowUniqueESSymbolType);
-							console.log('=> resolve: ', refName, '>', refSymbol.name, '|', refTypeNode && _getNodeName(refTypeNode, srcFile));
-
+							console.log('>Resolve>', refName);
+							// Create type
+							const entity: InputObject | OutputObject = {
+								kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
+								name: refName,
+								baseName: undefined, //TODO add this for type references
+								fields: new Map(),
+								deprecated: undefined,
+								fileNames: [fileName],
+								inherit: undefined,
+								jsDoc: [],
+								after: undefined,
+								before: undefined
+							};
+							(targetMap as Map<string, InputObject | OutputObject>).set(refName, entity);
+							// Resolve properties
+							const foundSymbols: Set<string> = new Set();
+							for (let i = 0, len = refTypes.length; i < len; ++i) {
+								let refType = refTypes[i];
+								for (let j = 0, properties = refType.getProperties(), jLen = properties.length; j < jLen; ++j) {
+									let property = properties[j];
+									let propertyTypeName = property.name;
+									if (!foundSymbols.has(propertyTypeName)) {
+										foundSymbols.add(propertyTypeName);
+										let propertyDeclaration = property.valueDeclaration ?? property.declarations?.[0];
+										if (propertyDeclaration == null) continue;
+										let propertyType = typeChecker.getTypeOfSymbolAtLocation(property, property.valueDeclaration!);
+										// Resolve
+										visitor.push(propertyDeclaration, propertyType, entity, srcFile, isInput, propertyTypeName);
+									}
+								}
+							}
+							// Resolve symbols
+							// for (let i = 0, len = refTypes.length; i < len; ++i) {
+							// 	let property = 
+							// }
+							// let refType = typeChecker.getNonNullableType(nodeType);
+							// console.log('symbol:', refType.symbol?.name)
+							// refType.getProperties().forEach((s) => {
+							// 	console.log('=====PROP: ', s.name)
+							// });
 						}
-						// Resolve types
-						// visitor.push(refNode.typeArguments, refEnt, srcFile, isInput);
 					}
 					break;
 				}
@@ -593,6 +646,27 @@ export function parse(files: readonly string[], program: ts.Program) {
 	/** Get entity name */
 	function _getNodeName(node: ts.Node, srcFile: ts.SourceFile): string {
 		return tsNodePrinter.printNode(ts.EmitHint.Unspecified, node, srcFile);
+	}
+	/** Remove Promise & Null from type */
+	function _removePromiseAndNull(type: ts.Type): ts.Type[] {
+		const queue: ts.Type[] = [type];
+		const result: ts.Type[] = [];
+		while (queue.length > 0) {
+			let tp: ts.Type | undefined = queue.pop()!;
+			tp = tp.getNonNullableType();
+			if (tp.isUnionOrIntersection()) {
+				for (let i = 0, types = tp.types, len = types.length; i < len; ++i) {
+					queue.push(types[i]);
+				}
+			} else if (tp.symbol?.name === 'Promise') {
+				tp = (tp as ts.TypeReference).typeArguments?.[0];
+				if (tp == null) throw `Fail to get Promise argument at ${typeChecker.typeToString(type)}`;
+				queue.push(tp);
+			} else if (!result.includes(tp)) {
+				result.push(tp);
+			}
+		}
+		return result;
 	}
 }
 
