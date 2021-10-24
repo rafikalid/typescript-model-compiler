@@ -2,7 +2,7 @@
 
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
-import ts from "typescript";
+import ts, { symbolName } from "typescript";
 import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode } from './model';
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
@@ -24,7 +24,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 	/** Helper entities */
 	const HelperEntities: HelperEntity[] = [];
 	/** Print Node Names */
-	const tsNodePrinter = ts.createPrinter({ omitTrailingSemicolon: false, removeComments: true });
+	const tsNodePrinter = ts.createPrinter({
+		omitTrailingSemicolon: false,
+		removeComments: true
+	});
 	/** Node Factory */
 	const factory = ts.factory;
 	/** Type Checker */
@@ -45,7 +48,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 			//* Get next item
 			let item = it.next();
 			if (item.done) break;
-			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation } = item.value;
+			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation, propertyType } = item.value;
 			let nodeSymbol = nodeType.symbol;
 			let fileName = srcFile.fileName;
 			//* Extract jsDoc && Metadata
@@ -127,6 +130,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 						case 'alias':
 							if (typeof tag.comment === 'string')
 								fieldAlias = tag.comment.trim().split(/\s/, 1)[0];
+							break;
+						case 'entity':
+							/** Interpret methods as resolvers */
+							isResolversImplementation = true;
 							break;
 					}
 				}
@@ -376,7 +383,16 @@ export function parse(files: readonly string[], program: ts.Program) {
 						if (isMethod && !isInput)
 							throw `Missing return value of the method "${className}.${entityName}" at ${errorFile(srcFile, node)}`;
 					} else if (!isMethod || !isInput) {
-						visitor.push(propertyNode.type, typeChecker.getTypeAtLocation(propertyNode.type), field, srcFile, isInput, entityName);
+						let propertyTypeNode = propertyNode.type;
+						if (propertyType == null) propertyType = typeChecker.getTypeAtLocation(propertyNode.type);
+						else propertyTypeNode = typeChecker.typeToTypeNode(
+							propertyType, propertyTypeNode,
+							ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
+						) ?? propertyTypeNode;
+						visitor.push(
+							propertyTypeNode, propertyType,
+							field, srcFile, isInput, entityName
+						);
 					}
 					break;
 				}
@@ -409,6 +425,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 					}
 					break;
 				}
+				case ts.SyntaxKind.LastTypeNode:
 				case ts.SyntaxKind.TypeReference: {
 					if (pDesc == null) continue;
 					if (
@@ -421,7 +438,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 						continue;
 					let refTypes = _removePromiseAndNull(nodeType);
 					// Check if array list
-					console.log('=====================', typeChecker.typeToString(nodeType));
 					let allAreArrays = true;
 					let arrTypeNodes: ts.ArrayTypeNode[] = [];
 					for (let i = 0, len = refTypes.length; i < len; ++i) {
@@ -460,7 +476,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 						//TODO resolve type
 						if (!targetMap.has(refName)) {
-							console.log('>Resolve>', refName);
 							// Create type
 							const entity: InputObject | OutputObject = {
 								kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
@@ -484,11 +499,14 @@ export function parse(files: readonly string[], program: ts.Program) {
 									let propertyTypeName = property.name;
 									if (!foundSymbols.has(propertyTypeName)) {
 										foundSymbols.add(propertyTypeName);
-										let propertyDeclaration = property.valueDeclaration ?? property.declarations?.[0];
+										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration;
 										if (propertyDeclaration == null) continue;
-										let propertyType = typeChecker.getTypeOfSymbolAtLocation(property, property.valueDeclaration!);
 										// Resolve
-										visitor.push(propertyDeclaration, propertyType, entity, srcFile, isInput, propertyTypeName);
+										visitor.push(
+											propertyDeclaration, typeChecker.getTypeAtLocation(propertyDeclaration),
+											entity, srcFile, isInput, propertyTypeName, undefined,
+											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration)
+										);
 									}
 								}
 							}
@@ -519,7 +537,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.PARAM
 					)
 						continue;
-					let nodeName = node.getText();
+					let nodeName = _getNodeName(node, srcFile);
 					pDesc.type = {
 						kind: Kind.REF,
 						name: nodeName,
@@ -548,10 +566,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 					pDesc.type = arrType;
 					// Visit each children
 					let arrEl = (node as ts.ArrayTypeNode).elementType;
-					visitor.push(arrEl, typeChecker.getTypeAtLocation(arrEl), arrType, srcFile, isInput, entityName);
+					// let arrEl =
+					console.log('> Resolve array Type', (pDesc as OutputField).name, ":", _getNodeName(arrEl, srcFile))
+					console.log('>>', ts.SyntaxKind[arrEl.kind]);
+					visitor.push(
+						arrEl,
+						(typeChecker.getTypeFromTypeNode(arrEl)),
+						arrType, srcFile, isInput, entityName);
 					break;
 				}
 				case ts.SyntaxKind.UnionType: {
+					//* Merge this with references
 					if (pDesc == null) continue;
 					if (
 						pDesc.kind !== Kind.OUTPUT_FIELD &&
@@ -568,7 +593,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							type.kind === ts.SyntaxKind.UndefinedKeyword ||
 							type.kind === ts.SyntaxKind.NullKeyword ||
 							(type.kind === ts.SyntaxKind.LiteralType &&
-								type.getText() === 'null')
+								_getNodeName(type, srcFile) === 'null')
 						) {
 							(pDesc as InputField | OutputField).required = false;
 						} else {

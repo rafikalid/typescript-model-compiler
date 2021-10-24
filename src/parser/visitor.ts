@@ -13,7 +13,9 @@ export interface VisitorEntities {
 	/** If this class is a helper class that contains resolves of an other class */
 	isResolversImplementation: boolean | undefined;
 	/** Name of the target entity if specified by it's parent */
-	entityName: string | undefined
+	entityName: string | undefined,
+	/** Property type in case of generic */
+	propertyType: ts.Type | undefined
 }
 /**
  * Visitor
@@ -37,7 +39,9 @@ export class NodeVisitor {
 		srcFile: ts.SourceFile,
 		isInput?: boolean,
 		entityName?: string,
-		isResolversImplementation?: boolean
+		isResolversImplementation?: boolean,
+		/** Type of property in case of generics */
+		propertyType?: ts.Type
 	) {
 		const queue = this._queue;
 		queue.push({
@@ -47,7 +51,8 @@ export class NodeVisitor {
 			srcFile,
 			isInput,
 			entityName,
-			isResolversImplementation
+			isResolversImplementation,
+			propertyType
 		});
 		return this;
 	}
@@ -70,7 +75,8 @@ export class NodeVisitor {
 				srcFile,
 				isInput,
 				entityName,
-				isResolversImplementation
+				isResolversImplementation,
+				propertyType: undefined
 			});
 		}
 	}
