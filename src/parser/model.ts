@@ -183,9 +183,11 @@ export interface EnumMember extends _Node {
 /** UNION */
 export interface Union extends _Node {
 	kind: Kind.UNION;
+	/** Union name to use in APIs */
+	baseName: string | undefined
 	/** TODO convert this to references to plain objects */
 	types: Reference[];
-	parser: MethodDescriptor;
+	parser: MethodDescriptor | undefined;
 }
 
 /** Assert options */

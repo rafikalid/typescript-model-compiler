@@ -434,18 +434,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.OUTPUT_FIELD &&
 						pDesc.kind !== Kind.INPUT_FIELD &&
 						pDesc.kind !== Kind.LIST &&
-						// pDesc.kind !== Kind.REF &&
-						pDesc.kind !== Kind.PARAM
+						pDesc.kind !== Kind.PARAM &&
+						pDesc.kind !== Kind.UNION
 					)
 						continue;
-					let refTypes = _removePromiseAndNull(nodeType);
 					console.log('REF>>--------------', _getNodeName(node, srcFile))
+					let refTypes = _removePromiseAndNull(nodeType);
 					// Check if array list
 					let allAreArrays = true;
 					let arrTypeNodes: ts.ArrayTypeNode[] = [];
 					for (let i = 0, len = refTypes.length; i < len; ++i) {
 						let t = refTypes[i];
-						console.log('>', typeChecker.typeToString(t));
 						let tNode: ts.TypeNode | undefined;
 						if (
 							t.symbol == null ||
@@ -465,40 +464,20 @@ export function parse(files: readonly string[], program: ts.Program) {
 						else arrTypeNode = factory.createArrayTypeNode(factory.createUnionTypeNode(arrTypeNodes.map(t => t.elementType)));
 						visitor.push(arrTypeNode, typeChecker.getTypeFromTypeNode(arrTypeNode), pDesc, srcFile, isInput, entityName);
 					} else {
-						//* Reference
-						let refName = _getNodeName(node, srcFile); // referenced node's name
-						let refEnt: Reference = {
-							kind: Kind.REF,
-							fileName: fileName,
-							name: refName
-							// fullName: refNode.getText(),
-							// params: refNode.typeArguments == null ? undefined : [],
-							// visibleFields: _getRefVisibleFields(nodeType)
-						};
-						pDesc.type = refEnt;
-						// Resolve type
+						let refName: string;
 						let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
-						//TODO resolve type
-						if (!targetMap.has(refName)) {
-							// Create type
-							const entity: InputObject | OutputObject = {
-								kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
-								name: refName,
-								baseName: undefined, //TODO add this for type references
-								fields: new Map(),
-								deprecated: undefined,
-								fileNames: [fileName],
-								inherit: undefined,
-								jsDoc: [],
-								after: undefined,
-								before: undefined
-							};
-							(targetMap as Map<string, InputObject | OutputObject>).set(refName, entity);
-							// Resolve properties
-							const foundSymbols: Set<string> = new Set();
-							for (let i = 0, len = refTypes.length; i < len; ++i) {
-								let refType = refTypes[i];
-								for (let j = 0, properties = refType.getProperties(), jLen = properties.length; j < jLen; ++j) {
+						if (refTypes.length === 1) {
+							//* Resolve to a single type
+							let type = refTypes[0];
+							refName = typeChecker.typeToString(type); // referenced node's name
+							if (
+								(type as ts.TypeReference).typeArguments?.length &&
+								!targetMap.has(refName)
+							) {
+								// Resolve generic type
+								let entity = _upObjectEntity(isInput!, refName, fileName, deprecated, undefined);
+								const foundSymbols: Set<string> = new Set();
+								for (let j = 0, properties = type.getProperties(), jLen = properties.length; j < jLen; ++j) {
 									let property = properties[j];
 									let propertyTypeName = property.name;
 									if (!foundSymbols.has(propertyTypeName)) {
@@ -514,16 +493,32 @@ export function parse(files: readonly string[], program: ts.Program) {
 									}
 								}
 							}
-							// Resolve symbols
-							// for (let i = 0, len = refTypes.length; i < len; ++i) {
-							// 	let property = 
-							// }
-							// let refType = typeChecker.getNonNullableType(nodeType);
-							// console.log('symbol:', refType.symbol?.name)
-							// refType.getProperties().forEach((s) => {
-							// 	console.log('=====PROP: ', s.name)
-							// });
+						} else {
+							//* Resolve union
+							refName = _getUnionNameFromTypes(refTypes);
+							let unionNode: Union = {
+								kind: Kind.UNION,
+								name: refName,
+								baseName: undefined,
+								deprecated: deprecated,
+								jsDoc: jsDoc,
+								types: [],
+								parser: undefined,
+								fileNames: [fileName]
+							};
+							INPUT_ENTITIES.set(refName, unionNode);
+							OUTPUT_ENTITIES.set(refName, unionNode);
 						}
+						// Resolve type
+						//TODO resolve type
+						//* Reference
+						let refEnt: Reference = {
+							kind: Kind.REF,
+							fileName: fileName,
+							name: refName
+						};
+						if (pDesc.kind === Kind.UNION) pDesc.types.push(refEnt);
+						else pDesc.type = refEnt;
 					}
 					break;
 				}
@@ -707,77 +702,44 @@ export function parse(files: readonly string[], program: ts.Program) {
 									break;
 								}
 								case 'UNION': {
-									_assertEntityNotFound(fileName, declaration, srcFile);
-									//* UNION
-									let unionNode: Union = {
-										kind: Kind.UNION,
-										name: fileName,
-										deprecated: deprecated,
-										jsDoc: jsDoc,
-										types: [],
-										parser: {
-											fileName: fileName,
-											className: nodeName,
-											isStatic: true,
-											name: undefined,
-											isClass: false
-										},
-										fileNames: [fileName]
-									};
-									INPUT_ENTITIES.set(fieldName, unionNode);
-									OUTPUT_ENTITIES.set(fieldName, unionNode);
-									let unionChildren = unionNode.types;
-									// Parse members
-									const union = typeChecker
-										.getAliasedSymbol(
-											typeChecker.getSymbolAtLocation(
-												typeArg.typeName
-											)!
-										)
-										?.declarations?.[0]?.getChildren()
-										.find(
-											e => e.kind === ts.SyntaxKind.UnionType
-										);
-									if (union == null || !ts.isUnionTypeNode(union))
-										throw `Missing union types for: "${typeArg.getText()}" at ${typeArg.getSourceFile().fileName
-										}`;
-									else {
-										let unionTypes = union.types;
-										for (
-											let k = 0, kLen = unionTypes.length;
-											k < kLen;
-											++k
-										) {
-											let unionType = unionTypes[k];
-											let dec =
-												typeChecker.getTypeAtLocation(
-													unionType
-												).symbol?.declarations?.[0];
-											if (
-												dec == null ||
-												!(
-													ts.isInterfaceDeclaration(
-														dec
-													) || ts.isClassDeclaration(dec)
-												)
-											)
-												throw new Error(
-													`Illegal union type: ${dec?.getText() ??
-													typeArg.getText()
-													} at ${typeArg.getSourceFile()
-														.fileName
-													}:${typeArg.getStart()}`
-												);
-											else {
-												let refN = dec.name!.getText();
-												let ref: Reference = {
-													kind: Kind.REF,
-													name: refN,
-													fileName: srcFile.fileName,
-												};
-												unionChildren.push(ref);
-											}
-										}
+									// parse types
+									let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
+									if (types.length < 2)
+										throw `Expected at least two types for the union "${_getNodeName(declaration, srcFile)}" at ${errorFile(srcFile, declaration)}`;
+									let unionName = _getUnionNameFromTypes(types);
+									let entity = INPUT_ENTITIES.get(unionName) as Union | undefined;
+									if (entity == null) {
+										if (entity = OUTPUT_ENTITIES.get(unionName) as Union | undefined)
+											throw `Duplicate entity "${unionName}" at ${errorFile(srcFile, declaration)
+											} and ${entity.fileNames.join(', ')}`;
+										entity = {
+											kind: Kind.UNION,
+											name: unionName,
+											baseName: fieldName,
+											deprecated: deprecated,
+											jsDoc: jsDoc,
+											types: [],
+											parser: undefined,
+											fileNames: [fileName]
+										};
+										INPUT_ENTITIES.set(unionName, entity);
+										OUTPUT_ENTITIES.set(unionName, entity);
+									} else if (entity.kind != Kind.UNION || OUTPUT_ENTITIES.get(unionName) !== entity) {
+										throw `Could not create union for "${unionName}" at ${errorFile(srcFile, declaration)}. Already defined as "${Kind[entity.kind]}" at ${entity.fileNames.join(', ')}`;
+									} else if (entity.parser != null) {
+										throw `Union for "${unionName}" at ${errorFile(srcFile, declaration)} already defined at ${entity.fileNames.join(', ')}`;
+									}
+									// Add child entities
+									let unionChildren = entity.types;
+									for (let i = 0, len = types.length; i < len; ++i) {
+										let type = types[i];
+										let typeSymbol = type.symbol;
+										if (typeSymbol == null)
+											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
+										let typeNode = typeSymbol.valueDeclaration ?? typeSymbol.declarations?.[0];
+										if (typeNode == null)
+											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
+										visitor.push(typeNode, type, entity, srcFile, undefined, undefined, isResolversImplementation);
 									}
 									break;
 								}
@@ -956,9 +918,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	}
 
 	/** Create Object entity if not exists */
-	function _upObjectEntity(isInput: true, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]): InputObject;
-	function _upObjectEntity(isInput: false, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]): OutputObject;
-	function _upObjectEntity(isInput: boolean, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]) {
+	function _upObjectEntity(isInput: boolean, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject | OutputObject {
 		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 		let entity = targetMap.get(name) as InputObject | OutputObject;
 		if (entity == null) {
@@ -970,10 +930,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 				deprecated: deprecated,
 				fileNames: [fileName],
 				inherit: undefined,
-				jsDoc: jsDoc,
+				jsDoc: jsDoc?.slice(0) ?? [],
 				after: undefined,
 				before: undefined
 			};
+			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}
 		return entity;
 	}
@@ -986,6 +947,15 @@ export function parse(files: readonly string[], program: ts.Program) {
 			((ref = OUTPUT_ENTITIES.get(name)) && ref.kind != Kind.OUTPUT_OBJECT)
 		)
 			throw `Already defined entity ${name} at ${errorFile(srcFile, node)}. Other files: \n\t> ${ref.fileNames.join("\n\t> ")}`;
+	}
+	/** Generate union name from types */
+	function _getUnionNameFromTypes(types: ts.Type[]): string {
+		const names = [];
+		for (let i = 0, len = types.length; i < len; ++i) {
+			names.push(typeChecker.typeToString(types[i]));
+		}
+		names.sort((a, b) => a.localeCompare(b));
+		return names.join('|');
 	}
 }
 
@@ -1141,3 +1111,4 @@ function _hasNtExport(node: ts.Node, srcFile: ts.SourceFile) {
 	warn(`Missing "export" keyword on ${ts.SyntaxKind[node.kind]} at ${errorFile(srcFile, node)}`);
 	return true;
 }
+
