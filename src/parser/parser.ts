@@ -2,8 +2,8 @@
 
 import { E, errorFile, TError } from "@src/utils/error";
 import { warn } from "@src/utils/log";
-import ts, { symbolName } from "typescript";
-import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode } from './model';
+import ts from "typescript";
+import { AssertOptions, BasicScalar, Enum, EnumMember, InputField, Kind, List, MethodDescriptor, Node, OutputField, Param, Reference, Scalar, Union, InputNode, InputObject, OutputObject, OutputNode, AllNodes } from './model';
 import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
 const parseYaml = Yaml.parse;
@@ -20,7 +20,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	const INPUT_ENTITIES: Map<string, InputNode> = new Map();
 	const OUTPUT_ENTITIES: Map<string, OutputNode> = new Map();
 	//* Literal objects had no with missing name like Literal objects
-	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean, ref: Reference }[] = [];
+	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean | undefined, ref: Reference }[] = [];
 	/** Helper entities */
 	const HelperEntities: HelperEntity[] = [];
 	/** Print Node Names */
@@ -411,6 +411,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								fileNames: [fileName]
 							};
 							// Parse param type
+							//TODO resolve parameter generic type
 							if (paramNode.type != null)
 								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pRef, srcFile, isInput, paramName);
 							pDesc.param = pRef;
@@ -426,7 +427,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 					break;
 				}
 				case ts.SyntaxKind.LastTypeNode:
-				case ts.SyntaxKind.TypeReference: {
+				case ts.SyntaxKind.TypeReference:
+				case ts.SyntaxKind.UnionType: {
 					if (pDesc == null) continue;
 					if (
 						pDesc.kind !== Kind.OUTPUT_FIELD &&
@@ -437,11 +439,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 					)
 						continue;
 					let refTypes = _removePromiseAndNull(nodeType);
+					console.log('REF>>--------------', _getNodeName(node, srcFile))
 					// Check if array list
 					let allAreArrays = true;
 					let arrTypeNodes: ts.ArrayTypeNode[] = [];
 					for (let i = 0, len = refTypes.length; i < len; ++i) {
 						let t = refTypes[i];
+						console.log('>', typeChecker.typeToString(t));
 						let tNode: ts.TypeNode | undefined;
 						if (
 							t.symbol == null ||
@@ -566,48 +570,299 @@ export function parse(files: readonly string[], program: ts.Program) {
 					pDesc.type = arrType;
 					// Visit each children
 					let arrEl = (node as ts.ArrayTypeNode).elementType;
-					// let arrEl =
-					console.log('> Resolve array Type', (pDesc as OutputField).name, ":", _getNodeName(arrEl, srcFile))
-					console.log('>>', ts.SyntaxKind[arrEl.kind]);
 					visitor.push(
 						arrEl,
 						(typeChecker.getTypeFromTypeNode(arrEl)),
 						arrType, srcFile, isInput, entityName);
 					break;
 				}
-				case ts.SyntaxKind.UnionType: {
-					//* Merge this with references
-					if (pDesc == null) continue;
+				case ts.SyntaxKind.EnumDeclaration: {
+					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
+					let nodeName = (node as ts.EnumDeclaration).name?.getText();
+					// Check for duplicate entities
+					let ref: InputNode | OutputNode | undefined;
 					if (
-						pDesc.kind !== Kind.OUTPUT_FIELD &&
-						pDesc.kind !== Kind.INPUT_FIELD &&
-						pDesc.kind !== Kind.LIST &&
-						pDesc.kind !== Kind.PARAM
+						((ref = INPUT_ENTITIES.get(nodeName)) && ref.kind != Kind.INPUT_OBJECT) ||
+						((ref = OUTPUT_ENTITIES.get(nodeName)) && ref.kind != Kind.OUTPUT_OBJECT)
 					)
-						continue;
-					let unionNode = node as ts.UnionTypeNode;
-					let nonNullTypes: ts.TypeNode[] = []
-					for (let i = 0, types = unionNode.types, len = types.length; i < len; ++i) {
-						let type = types[i];
-						if (
-							type.kind === ts.SyntaxKind.UndefinedKeyword ||
-							type.kind === ts.SyntaxKind.NullKeyword ||
-							(type.kind === ts.SyntaxKind.LiteralType &&
-								_getNodeName(type, srcFile) === 'null')
-						) {
-							(pDesc as InputField | OutputField).required = false;
-						} else {
-							nonNullTypes.push(type);
-						}
+						throw `Duplicate ENUM "${nodeName}" at ${errorFile(srcFile, node)}. Other files: \n\t> ${ref.fileNames.join("\n\t> ")}`;
+					// Create Enum
+					let enumEntity: Enum = {
+						kind: Kind.ENUM,
+						name: nodeName,
+						deprecated: deprecated,
+						jsDoc: jsDoc,
+						members: [],
+						fileNames: [fileName]
+					};
+					INPUT_ENTITIES.set(nodeName, enumEntity);
+					OUTPUT_ENTITIES.set(nodeName, enumEntity);
+					// Resolve children
+					let enumNode = node as ts.EnumDeclaration;
+					for (let i = 0, members = enumNode.members, len = members.length; i < len; ++i) {
+						let member = members[i];
+						visitor.push(member, typeChecker.getTypeAtLocation(member), enumEntity, srcFile, undefined);
 					}
-					if (nonNullTypes.length > 1) {
-						//* Defined union
-						// TODO support native unions
-						throw `Please give a name to the union "${_getNodeName(unionNode, srcFile)}" at ${errorFile(srcFile, node)}`;
-					} else if (nonNullTypes.length === 1) {
-						//* Simple reference
-						let tp = nonNullTypes[0]
-						visitor.push(tp, typeChecker.getTypeAtLocation(tp), pDesc, srcFile, isInput, entityName);
+					break;
+				}
+				case ts.SyntaxKind.EnumMember: {
+					//* Enum member
+					let nodeName = (node as ts.EnumMember).name?.getText();
+					if (pDesc == null || pDesc.kind != Kind.ENUM)
+						throw `Unexpected ENUM MEMBER "${nodeName}" at: ${errorFile(srcFile, node)}`;
+					let enumMember: EnumMember = {
+						kind: Kind.ENUM_MEMBER,
+						name: nodeName,
+						value: typeChecker.getConstantValue(node as ts.EnumMember)!,
+						deprecated: deprecated,
+						jsDoc: jsDoc,
+						fileNames: [fileName]
+					};
+					pDesc.members.push(enumMember);
+					break;
+				}
+				case ts.SyntaxKind.TypeLiteral: {
+					//* Type literal are equivalent to nameless classes
+					if (pDesc == null) continue;
+					if (pDesc.kind === Kind.INPUT_OBJECT || pDesc.kind === Kind.OUTPUT_OBJECT) {
+						//* Update already defined plain object
+						//TODO check works
+						visitor.pushChildren(typeChecker, node, pDesc, srcFile, isInput, undefined, isResolversImplementation);
+					} else if (
+						pDesc.kind === Kind.OUTPUT_FIELD ||
+						pDesc.kind === Kind.INPUT_FIELD ||
+						pDesc.kind === Kind.LIST ||
+						pDesc.kind === Kind.PARAM
+					) {
+						entityName ??= '';
+						// let nodeType = typeChecker.getTypeAtLocation(node);
+						let entity: InputObject | OutputObject = {
+							kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
+							name: entityName,
+							baseName: entityName,
+							fields: new Map(),
+							deprecated: deprecated,
+							fileNames: [fileName],
+							inherit: undefined,
+							jsDoc: jsDoc,
+							after: undefined,
+							before: undefined
+						};
+						let typeRef: Reference = {
+							kind: Kind.REF,
+							name: entityName,
+							fileName: srcFile.fileName
+						};
+						LITERAL_OBJECTS.push({ node: entity, ref: typeRef, isInput });
+						pDesc.type = typeRef;
+						// Go through fields
+						visitor.pushChildren(typeChecker, node, entity, srcFile, isInput, undefined, isResolversImplementation);
+					}
+					break;
+				}
+				case ts.SyntaxKind.VariableStatement: {
+					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
+					let variableNode = node as ts.VariableStatement;
+					for (
+						let i = 0,
+						declarations = variableNode.declarationList.declarations,
+						len = declarations.length;
+						i < len; ++i
+					) {
+						let declaration = declarations[i];
+						let type = declaration.type;
+						let nodeName = declaration.name.getText();
+						let s: ts.Symbol | undefined;
+						if (
+							type &&
+							ts.isTypeReferenceNode(type) &&
+							type.typeArguments?.length === 1 &&
+							(s = typeChecker.getSymbolAtLocation(type.typeName))
+						) {
+							let typeArg = type.typeArguments[0];
+							let fieldName = typeArg.getText();
+							if (!ts.isTypeReferenceNode(typeArg))
+								throw `Unexpected Entity Name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+							switch (s.name) {
+								case 'ModelScalar': {
+									//* Scalar
+									_assertEntityNotFound(fileName, declaration, srcFile);
+									// JUST OVERRIDE WHEN SCALAR :)
+									let scalarEntity: Scalar = {
+										kind: Kind.SCALAR,
+										name: fieldName,
+										deprecated: deprecated,
+										jsDoc: jsDoc,
+										parser: {
+											fileName: fileName,
+											className: nodeName,
+											isStatic: true,
+											name: undefined,
+											isClass: false
+										},
+										fileNames: [fileName]
+									};
+									INPUT_ENTITIES.set(fieldName, scalarEntity);
+									OUTPUT_ENTITIES.set(fieldName, scalarEntity);
+									break;
+								}
+								case 'UNION': {
+									_assertEntityNotFound(fileName, declaration, srcFile);
+									//* UNION
+									let unionNode: Union = {
+										kind: Kind.UNION,
+										name: fileName,
+										deprecated: deprecated,
+										jsDoc: jsDoc,
+										types: [],
+										parser: {
+											fileName: fileName,
+											className: nodeName,
+											isStatic: true,
+											name: undefined,
+											isClass: false
+										},
+										fileNames: [fileName]
+									};
+									INPUT_ENTITIES.set(fieldName, unionNode);
+									OUTPUT_ENTITIES.set(fieldName, unionNode);
+									let unionChildren = unionNode.types;
+									// Parse members
+									const union = typeChecker
+										.getAliasedSymbol(
+											typeChecker.getSymbolAtLocation(
+												typeArg.typeName
+											)!
+										)
+										?.declarations?.[0]?.getChildren()
+										.find(
+											e => e.kind === ts.SyntaxKind.UnionType
+										);
+									if (union == null || !ts.isUnionTypeNode(union))
+										throw `Missing union types for: "${typeArg.getText()}" at ${typeArg.getSourceFile().fileName
+										}`;
+									else {
+										let unionTypes = union.types;
+										for (
+											let k = 0, kLen = unionTypes.length;
+											k < kLen;
+											++k
+										) {
+											let unionType = unionTypes[k];
+											let dec =
+												typeChecker.getTypeAtLocation(
+													unionType
+												).symbol?.declarations?.[0];
+											if (
+												dec == null ||
+												!(
+													ts.isInterfaceDeclaration(
+														dec
+													) || ts.isClassDeclaration(dec)
+												)
+											)
+												throw new Error(
+													`Illegal union type: ${dec?.getText() ??
+													typeArg.getText()
+													} at ${typeArg.getSourceFile()
+														.fileName
+													}:${typeArg.getStart()}`
+												);
+											else {
+												let refN = dec.name!.getText();
+												let ref: Reference = {
+													kind: Kind.REF,
+													name: refN,
+													fileName: srcFile.fileName,
+												};
+												unionChildren.push(ref);
+											}
+										}
+									}
+									break;
+								}
+								case 'ResolverConfig': {
+									_assertEntityNotFound(fileName, declaration, srcFile);
+									let inputEntityName =
+										typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
+									if (inputEntityName == null)
+										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+									let obj = declaration.initializer;
+									if (obj == null)
+										throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
+									if (!ts.isObjectLiteralExpression(obj))
+										throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
+									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
+										let property = properties[j];
+										if (!ts.isPropertyAssignment(property)) continue;
+										switch (property.name?.getText()) {
+											case "outputFields":
+												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
+													_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
+													srcFile, false, inputEntityName);
+												break;
+											case 'inputFields':
+												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
+													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
+												break;
+											case 'outputBefore': {
+												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+												if (entity.before != null)
+													throw `Already defined "${inputEntityName}::outputBefore" at ${errorFile(srcFile, property)}`;
+												entity.before = {
+													name: 'outputBefore',
+													className: nodeName,
+													fileName: fileName,
+													isClass: false,
+													isStatic: true
+												}
+												break;
+											}
+											case 'outputAfter': {
+												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+												if (entity.after != null)
+													throw `Already defined "${entity.name}::outputAfter" at ${errorFile(srcFile, property)}`;
+												entity.after = {
+													name: 'outputAfter',
+													className: nodeName,
+													fileName: fileName,
+													isClass: false,
+													isStatic: true
+												}
+												break;
+											}
+											case 'inputBefore': {
+												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+												if (entity.before != null)
+													throw `Already defined "${entity.name}::inputBefore" at ${errorFile(srcFile, property)}`;
+												entity.before = {
+													name: 'inputBefore',
+													className: nodeName,
+													fileName: fileName,
+													isClass: false,
+													isStatic: true
+												}
+												break;
+											}
+											case 'inputAfter': {
+												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+												if (entity.after != null)
+													throw `Already defined "${entity.name}::inputAfter" at ${errorFile(srcFile, property)}`;
+												entity.after = {
+													name: 'inputAfter',
+													className: nodeName,
+													fileName: fileName,
+													isClass: false,
+													isStatic: true
+												}
+												break;
+											}
+										}
+									}
+									break;
+								}
+							}
+						}
 					}
 					break;
 				}
@@ -619,6 +874,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 						`Tuples are unsupported, did you mean Array of type? at ${errorFile(srcFile, node)
 						}\n${node.getText()}`
 					);
+				case ts.SyntaxKind.TypeOperator: {
+					//FIXME Check what TypeOperatorNode do!
+					let tp = (node as ts.TypeOperatorNode).type;
+					visitor.push(tp, typeChecker.getTypeAtLocation(tp), pDesc, srcFile, isInput);
+					break;
+				}
 				default: {
 					// console.log('--- GOT: ', !!pDesc, ts.SyntaxKind[node.kind]);
 				}
@@ -693,6 +954,39 @@ export function parse(files: readonly string[], program: ts.Program) {
 		}
 		return result;
 	}
+
+	/** Create Object entity if not exists */
+	function _upObjectEntity(isInput: true, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]): InputObject;
+	function _upObjectEntity(isInput: false, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]): OutputObject;
+	function _upObjectEntity(isInput: boolean, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[]) {
+		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+		let entity = targetMap.get(name) as InputObject | OutputObject;
+		if (entity == null) {
+			entity = {
+				kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
+				name: name,
+				baseName: name,
+				fields: new Map(),
+				deprecated: deprecated,
+				fileNames: [fileName],
+				inherit: undefined,
+				jsDoc: jsDoc,
+				after: undefined,
+				before: undefined
+			};
+		}
+		return entity;
+	}
+
+	/** Check entity exits */
+	function _assertEntityNotFound(name: string, node: ts.Node, srcFile: ts.SourceFile) {
+		let ref: AllNodes | undefined;
+		if (
+			((ref = INPUT_ENTITIES.get(name)) && ref.kind != Kind.INPUT_OBJECT) ||
+			((ref = OUTPUT_ENTITIES.get(name)) && ref.kind != Kind.OUTPUT_OBJECT)
+		)
+			throw `Already defined entity ${name} at ${errorFile(srcFile, node)}. Other files: \n\t> ${ref.fileNames.join("\n\t> ")}`;
+	}
 }
 
 /** Helper entity interface: enables to add resolvers to other entities fields */
@@ -712,7 +1006,6 @@ function _getRefVisibleFields(nodeType: ts.Type) {
 	if (
 		nodeSymbol?.name === 'Promise'
 	) {
-		console.log('//Goy promise'); //-HERE --------------------
 		// return _getRefVisibleFields(nodeType.);
 		const visibleFields: Map<string, { flags: ts.SymbolFlags; className: string; }> = new Map();
 		return visibleFields;
