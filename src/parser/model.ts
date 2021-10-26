@@ -171,6 +171,7 @@ export interface List extends Omit<_Node, 'name'> {
 /** ENUM */
 export interface Enum extends _Node {
 	kind: Kind.ENUM;
+	baseName: string | undefined
 	members: EnumMember[];
 }
 
