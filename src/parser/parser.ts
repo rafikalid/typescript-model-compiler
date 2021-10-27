@@ -22,7 +22,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 	//* Literal objects had no with missing name like Literal objects
 	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean | undefined, ref: Reference }[] = [];
 	/** Helper entities */
-	const HelperEntities: HelperEntity[] = [];
+	const inputHelperEntities: Map<string, InputObject[]> = new Map();
+	const outputHelperEntities: Map<string, OutputObject[]> = new Map();
 	/** Print Node Names */
 	const tsNodePrinter = ts.createPrinter({
 		omitTrailingSemicolon: false,
@@ -235,11 +236,15 @@ export function parse(files: readonly string[], program: ts.Program) {
 								after: undefined,
 								before: undefined
 							};
-							if (isImplementation)
-								HelperEntities.push({
-									isInput: isResolveInput, name: entityName, entities: implementedEntities,
-									entity: entity as ObjectType
-								});
+							if (isImplementation) {
+								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
+								for (let l = 0, lLen = implementedEntities!.length; l < lLen; ++l) {
+									let entityName = implementedEntities![l];
+									let targetLst = targetM.get(entityName);
+									if (targetLst == null) targetM.set(entityName, [entity as InputObject]);
+									else (targetLst as InputObject[]).push(entity as InputObject);
+								}
+							}
 							else
 								(TARGET_MAP as Map<string, ObjectType>).set(entityName, entity as ObjectType);
 						} else if (entity.kind === Kind.SCALAR) {
@@ -390,7 +395,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 								propertyType, propertyTypeNode,
 								ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
 							) ?? propertyTypeNode;
-							console.log(entityName, '>', ts.SyntaxKind[propertyTypeNode.kind])
 						}
 						visitor.push(
 							propertyTypeNode, propertyType,
@@ -441,6 +445,15 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.UNION
 					)
 						continue;
+					//* Check if simple type name
+					try {
+						console.log('>>======>', _getNodeName(node, srcFile));
+						let lt = _cleanReference(node as ts.TypeNode);
+						console.log('=>', lt && _getNodeName(lt, srcFile) || '<NO_TYPE>')
+					} catch (error: any) {
+						if (typeof error === 'string') error = `${error} at ${errorFile(srcFile, node)}`;
+						throw error;
+					}
 					let refTypes = _removePromiseAndNull(nodeType);
 					if (refTypes.length === 0) {
 						throw `Field has empty type: ${_getNodeName(node, srcFile)} at ${errorFile(srcFile, node)}`;
@@ -956,7 +969,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 	}
 	return {
 		input: INPUT_ENTITIES,
-		output: OUTPUT_ENTITIES
+		output: OUTPUT_ENTITIES,
+		inputHelperEntities,
+		outputHelperEntities
 	};
 
 	// TODO
@@ -982,6 +997,44 @@ export function parse(files: readonly string[], program: ts.Program) {
 			} else if (!result.includes(tp)) {
 				result.push(tp);
 			}
+		}
+		return result;
+	}
+
+	/** Remove Promise and null and undefined from references */
+	function _cleanReference(node: ts.TypeNode): ts.TypeNode | undefined {
+		var result: ts.TypeNode | undefined;
+		if (ts.isConstTypeReference(node)) {
+			console.log('const ref:>>', node);
+			result = node;
+		} else if (ts.isArrayTypeNode(node)) {
+			console.log()
+			let tp = _cleanReference(node.elementType);
+			if (tp != null)
+				node = factory.createArrayTypeNode(tp);
+		} else if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
+			let types: ts.TypeNode[] = [];
+			for (let i = 0, nodeTypes = node.types, len = types.length; i < len; ++i) {
+				let type = _cleanReference(nodeTypes[i]);
+				if (type != null) types.push(type);
+			}
+			if (types.length > 0) {
+				if (ts.isUnionTypeNode(node)) result = factory.createUnionTypeNode(types);
+				else result = factory.createIntersectionTypeNode(types);
+			}
+		} else if (ts.isTypeReferenceNode(node) && node.typeArguments != null) {
+			let type = typeChecker.getTypeAtLocation(node);
+			if (type.isClassOrInterface()) result = node;
+			else {
+				let tpDec = type.symbol?.valueDeclaration ?? type.symbol?.declarations?.[0];
+				if (tpDec == null) throw `Could not resolve type "${typeChecker.typeToString(type, node)}"`;
+				let tpNode = typeChecker.typeToTypeNode(type, tpDec, ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope);
+				if (tpNode == null)
+					throw `Could not resolve type "${typeChecker.typeToString(type, node)}"`;
+				result = _cleanReference(tpNode);
+			}
+		} else {
+			result = node;
 		}
 		return result;
 	}
@@ -1026,18 +1079,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 		names.sort((a, b) => a.localeCompare(b));
 		return names.join('|');
 	}
-}
-
-/** Helper entity interface: enables to add resolvers to other entities fields */
-interface HelperEntity {
-	/** Class name */
-	name: string,
-	/** Is input or output */
-	isInput: boolean
-	/** Target entities */
-	entities: string[] | undefined
-	/** Entity */
-	entity: InputObject | OutputObject
 }
 
 /** Compile assert expressions */
