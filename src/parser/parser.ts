@@ -446,44 +446,38 @@ export function parse(files: readonly string[], program: ts.Program) {
 					)
 						continue;
 					//* Check if simple type name
-					try {
-						console.log('>>======>', _getNodeName(node, srcFile));
-						let lt = _cleanReference(node as ts.TypeNode);
-						console.log('=>', lt && _getNodeName(lt, srcFile) || '<NO_TYPE>')
-					} catch (error: any) {
-						if (typeof error === 'string') error = `${error} at ${errorFile(srcFile, node)}`;
-						throw error;
-					}
 					let refTypes = _removePromiseAndNull(nodeType);
-					if (refTypes.length === 0) {
-						throw `Field has empty type: ${_getNodeName(node, srcFile)} at ${errorFile(srcFile, node)}`;
-					}
+					if (refTypes.length === 0) throw `Field has empty type: "${_getNodeName(node, srcFile)}" at ${errorFile(srcFile, node)}`;
 					// Check if array list
-					let allAreArrays = true;
-					let arrTypeNodes: ts.ArrayTypeNode[] = [];
-					for (let i = 0, len = refTypes.length; i < len; ++i) {
-						let t = refTypes[i];
-						let tNode: ts.TypeNode | undefined;
-						if (
-							t.symbol == null ||
-							(tNode = typeChecker.typeToTypeNode(t, t.symbol.valueDeclaration, ts.NodeBuilderFlags.AllowUniqueESSymbolType)) == null ||
-							!ts.isArrayTypeNode(tNode)
-						) {
-							allAreArrays = false;
-							break;
-						} else {
-							arrTypeNodes.push(tNode);
-						}
-					}
-					if (allAreArrays) {
-						//* Array
-						let arrTypeNode: ts.ArrayTypeNode;
-						if (arrTypeNodes.length === 1) arrTypeNode = arrTypeNodes[0];
-						else arrTypeNode = factory.createArrayTypeNode(factory.createUnionTypeNode(arrTypeNodes.map(t => t.elementType)));
-						visitor.push(arrTypeNode, typeChecker.getTypeFromTypeNode(arrTypeNode), pDesc, srcFile, isInput, entityName);
-					} else {
-						let refName: string;
-						let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+					// let allAreArrays = true;
+					// let arrTypeNodes: ts.ArrayTypeNode[] = [];
+					// for (let i = 0, len = refTypes.length; i < len; ++i) {
+					// 	let t = refTypes[i];
+					// 	let tNode: ts.TypeNode | undefined;
+					// 	if (
+					// 		t.symbol == null ||
+					// 		(tNode = typeChecker.typeToTypeNode(t, t.symbol.valueDeclaration, ts.NodeBuilderFlags.AllowUniqueESSymbolType)) == null ||
+					// 		-!ts.isArrayTypeNode(tNode)
+					// 	) {
+					// 		allAreArrays = false;
+					// 		break;
+					// 	} else {
+					// 		arrTypeNodes.push(tNode);
+					// 	}
+					// }
+					// if (allAreArrays) {
+					// 	//* Array
+					// 	let arrTypeNode: ts.ArrayTypeNode;
+					// 	if (arrTypeNodes.length === 1) arrTypeNode = arrTypeNodes[0];
+					// 	else arrTypeNode = factory.createArrayTypeNode(factory.createUnionTypeNode(arrTypeNodes.map(t => t.elementType)));
+					// 	visitor.push(arrTypeNode, typeChecker.getTypeFromTypeNode(arrTypeNode), pDesc, srcFile, isInput, entityName);
+					// } else {
+					let typeNode = _cleanReference(node as ts.TypeNode)
+					if (typeNode == null) throw `Empty Type Declaration: "${_getNodeName(node, srcFile)}" at ${errorFile(srcFile, node)}`;
+					let refName = _getNodeName(typeNode, srcFile);
+					let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+					let entity = targetMap.get(refName);
+					if (entity == null) {
 						//* Check if it's enum
 						const enumMembers: ts.EnumMember[] = [];
 						{
@@ -531,7 +525,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						else if (refTypes.length === 1) {
 							//* Resolve to a single type
 							let type = refTypes[0];
-							refName = typeChecker.typeToString(type); // referenced node's name
+							// refName = typeChecker.typeToString(type); // referenced node's name
 							if (
 								(
 									(type as ts.TypeReference).typeArguments != null ||
@@ -561,13 +555,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 						//* Is Union
 						else {
 							//* Resolve union
-							refName = _getUnionNameFromTypes(refTypes);
+							// refName = _getUnionNameFromTypes(refTypes);
 							let entity = INPUT_ENTITIES.get(refName);
 							if (entity == null) {
 								entity = {
 									kind: Kind.UNION,
 									name: refName,
-									baseName: refName,
+									baseName: _getUnionNameFromTypes(refTypes),
 									deprecated: deprecated,
 									jsDoc: jsDoc,
 									types: [],
@@ -577,18 +571,19 @@ export function parse(files: readonly string[], program: ts.Program) {
 								INPUT_ENTITIES.set(refName, entity);
 								OUTPUT_ENTITIES.set(refName, entity);
 							} else if (entity.kind !== Kind.UNION || OUTPUT_ENTITIES.get(refName) !== entity) {
-								throw `Duplicate entity "${refName}" at ${errorFile(srcFile, node)} and ${entity.fileNames.join(', ')}`;
+								throw `Duplicate UNION entity "${refName}" at ${errorFile(srcFile, node)} and as "${Kind[entity.kind]}" in ${entity.fileNames.join(', ')}`;
 							}
 						}
-						//* Reference
-						let refEnt: Reference = {
-							kind: Kind.REF,
-							fileName: fileName,
-							name: refName
-						};
-						if (pDesc.kind === Kind.UNION) pDesc.types.push(refEnt);
-						else pDesc.type = refEnt;
 					}
+					//* Reference
+					let refEnt: Reference = {
+						kind: Kind.REF,
+						fileName: fileName,
+						name: refName
+					};
+					if (pDesc.kind === Kind.UNION) pDesc.types.push(refEnt);
+					else pDesc.type = refEnt;
+					// }
 					break;
 				}
 				case ts.SyntaxKind.StringKeyword:
@@ -643,11 +638,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 				case ts.SyntaxKind.EnumDeclaration: {
 					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 					let enumNode = node as ts.EnumDeclaration;
-					let baseName = enumNode.name?.getText();
-					let nodeName = enumNode.members
-						.map(m => `${baseName}.${m.name.getText()}`)
-						.sort((a, b) => a.localeCompare(b))
-						.join('|');
+					let nodeName = enumNode.name?.getText();
 					// Check for duplicate entities
 					let entity = INPUT_ENTITIES.get(nodeName);
 					if (entity == null) {
@@ -655,7 +646,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						entity = {
 							kind: Kind.ENUM,
 							name: nodeName,
-							baseName: baseName,
+							baseName: nodeName,
 							deprecated: deprecated,
 							jsDoc: jsDoc,
 							members: [],
@@ -665,7 +656,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						OUTPUT_ENTITIES.set(nodeName, entity);
 					}
 					else if (entity.kind !== Kind.ENUM || entity !== OUTPUT_ENTITIES.get(nodeName))
-						throw `Duplicate ENUM "${baseName}" at ${errorFile(srcFile, node)}. Other files: \n\t> ${entity.fileNames.join("\n\t> ")}`;
+						throw `Duplicate ENUM "${nodeName}" at ${errorFile(srcFile, node)}. Other files: \n\t> ${entity.fileNames.join("\n\t> ")}`;
 					else {
 						entity.jsDoc.push(...jsDoc);
 						entity.deprecated ??= deprecated;
@@ -781,10 +772,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 								}
 								case 'UNION': {
 									// parse types
-									let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
-									if (types.length < 2)
-										throw `Expected at least two types for the union "${_getNodeName(declaration, srcFile)}" at ${errorFile(srcFile, declaration)}`;
-									let unionName = _getUnionNameFromTypes(types);
+									let typeNode = _cleanReference(typeArg);
+									if (typeNode == null)
+										throw `Wrong union reference "${_getNodeName(declaration, srcFile)}" at ${errorFile(srcFile, declaration)}`;
+									let unionName = _getNodeName(typeNode, srcFile); //_getUnionNameFromTypes(types);
 									let entity = INPUT_ENTITIES.get(unionName) as Union | undefined;
 									if (entity == null) {
 										if (entity = OUTPUT_ENTITIES.get(unionName) as Union | undefined)
@@ -813,6 +804,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 										entity.fileNames.push(fileName);
 									}
 									// Add child entities
+									let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
 									for (let i = 0, len = types.length; i < len; ++i) {
 										let type = types[i];
 										let typeSymbol = type.symbol;
@@ -1004,17 +996,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 	/** Remove Promise and null and undefined from references */
 	function _cleanReference(node: ts.TypeNode): ts.TypeNode | undefined {
 		var result: ts.TypeNode | undefined;
-		if (ts.isConstTypeReference(node)) {
-			console.log('const ref:>>', node);
+		if (node.kind === ts.SyntaxKind.UndefinedKeyword || node.kind === ts.SyntaxKind.NullKeyword) {
+			result = undefined;
+		} else if (ts.isLiteralTypeNode(node)) {
 			result = node;
 		} else if (ts.isArrayTypeNode(node)) {
-			console.log()
 			let tp = _cleanReference(node.elementType);
 			if (tp != null)
-				node = factory.createArrayTypeNode(tp);
+				result = factory.createArrayTypeNode(tp);
 		} else if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
 			let types: ts.TypeNode[] = [];
-			for (let i = 0, nodeTypes = node.types, len = types.length; i < len; ++i) {
+			for (let i = 0, nodeTypes = node.types, len = nodeTypes.length; i < len; ++i) {
 				let type = _cleanReference(nodeTypes[i]);
 				if (type != null) types.push(type);
 			}
@@ -1023,16 +1015,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 				else result = factory.createIntersectionTypeNode(types);
 			}
 		} else if (ts.isTypeReferenceNode(node) && node.typeArguments != null) {
-			let type = typeChecker.getTypeAtLocation(node);
-			if (type.isClassOrInterface()) result = node;
-			else {
-				let tpDec = type.symbol?.valueDeclaration ?? type.symbol?.declarations?.[0];
-				if (tpDec == null) throw `Could not resolve type "${typeChecker.typeToString(type, node)}"`;
-				let tpNode = typeChecker.typeToTypeNode(type, tpDec, ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope);
-				if (tpNode == null)
-					throw `Could not resolve type "${typeChecker.typeToString(type, node)}"`;
-				result = _cleanReference(tpNode);
-			}
+			let typeNameType = typeChecker.getTypeAtLocation(node.typeName);
+			let n: string | undefined;
+			if (
+				node.typeArguments.length === 1 && (
+					(n = (typeNameType.aliasSymbol ?? typeNameType.symbol)?.name) === 'Promise' ||
+					n === 'Maybe' ||
+					n === 'MaybeAsync'
+				)
+			)
+				result = _cleanReference(node.typeArguments[0]);
+			else result = node;
 		} else {
 			result = node;
 		}

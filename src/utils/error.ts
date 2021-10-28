@@ -20,8 +20,12 @@ export class TError extends Error {
 
 /** Generate error */
 export function errorFile(srcFile: ts.SourceFile, node: ts.Node) {
-	let { line, character } = srcFile.getLineAndCharacterOfPosition(
-		node.getStart()
-	);
-	return `${srcFile.fileName}:${line}:${character}`;
+	try {
+		let { line, character } = srcFile.getLineAndCharacterOfPosition(
+			node.getStart()
+		);
+		return `${srcFile.fileName}:${line}:${character}`;
+	} catch (error: any) {
+		return '< GENERIC >'
+	}
 }
