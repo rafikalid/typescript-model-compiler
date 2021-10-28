@@ -959,11 +959,14 @@ export function parse(files: readonly string[], program: ts.Program) {
 		item.ref.name = itemName;
 		(targetMap as Map<string, InputObject | OutputObject>).set(itemName, node);
 	}
+	//* Merge Helpers
+
+	//* Return
 	return {
 		input: INPUT_ENTITIES,
 		output: OUTPUT_ENTITIES,
-		inputHelperEntities,
-		outputHelperEntities
+		inputHelperEntities: _mergeEntityHelpers(inputHelperEntities),
+		outputHelperEntities: _mergeEntityHelpers(outputHelperEntities)
 	};
 
 	// TODO
@@ -1155,3 +1158,36 @@ function _hasNtExport(node: ts.Node, srcFile: ts.SourceFile) {
 	return true;
 }
 
+
+/** Merge helpers */
+function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map<string, T[]>) {
+	const result: Map<string, T> = new Map();
+	entities.forEach((arr, name) => {
+		const obj = arr[0];
+		for (let i = 1, len = arr.length; i < len; ++i) {
+			let node = arr[i];
+			obj.baseName ??= node.baseName;
+			// Inheritance
+			if (obj.inherit == null) obj.inherit = node.inherit;
+			else if (node.inherit != null) obj.inherit.push(...node.inherit);
+			// before & after
+			obj.before ??= node.before;
+			obj.after ??= node.after;
+			// Fields
+			node.fields.forEach((field, fieldName) => {
+				let objField = obj.fields.get(fieldName);
+				if (objField == null) (obj.fields as Map<string, OutputField | InputField>).set(fieldName, field);
+				else {
+					objField.alias ??= field.alias;
+					objField.defaultValue ??= field.defaultValue;
+					objField.method ??= field.method;
+					if (objField.kind === Kind.INPUT_FIELD) {
+						objField.asserts ??= (field as InputField).asserts;
+					}
+				}
+			});
+		}
+		result.set(name, obj);
+	});
+	return result;
+}
