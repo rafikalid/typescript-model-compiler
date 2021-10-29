@@ -11,6 +11,7 @@ export interface ToDataReturn {
 /** Generate data nodes */
 export function toDataModel(
 	nodeFactory: ts.NodeFactory,
+	srcFile: ts.SourceFile,
 	data: ReturnType<typeof format>,
 	pretty: boolean
 ): ToDataReturn {

@@ -138,7 +138,7 @@ export class Compiler {
 				let { srcFile, node: targetNode, type: methodName } = files[j];
 				try {
 					//* Compile data
-					let { imports, node: resultNode } = this.convertData(factory, methodName, formatted, pretty);
+					let { imports, node: resultNode } = this.convertData(factory, srcFile, methodName, formatted, pretty);
 					//* Replace patterns
 					srcFile = ts.transform(srcFile, [function (ctx: ts.TransformationContext) {
 						function _visitor(node: ts.Node): ts.Node {
@@ -262,15 +262,15 @@ export class Compiler {
 	}
 
 	/** Inject data into files */
-	convertData(nodeFactory: ts.NodeFactory, methodName: string, data: ReturnType<typeof format>, pretty: boolean): ToDataReturn {
+	convertData(nodeFactory: ts.NodeFactory, srcFile: ts.SourceFile, methodName: string, data: ReturnType<typeof format>, pretty: boolean): ToDataReturn {
 		//* Convert data into ts nodes
 		let result: ToDataReturn;
 		switch (methodName) {
 			case 'scan':
-				result = toDataModel(nodeFactory, data, pretty);
+				result = toDataModel(nodeFactory, srcFile, data, pretty);
 				break;
 			case 'scanGraphQL':
-				result = toGraphQL(nodeFactory, data, pretty);
+				result = toGraphQL(nodeFactory, srcFile, data, pretty);
 				break;
 			default:
 				throw `Unexpected method "${methodName}"`;
