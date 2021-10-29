@@ -10,13 +10,6 @@ import {
 	_Node
 } from './model';
 
-/** Format response */
-export interface FormatResponse {
-	input: Map<string, FormattedInputNode>;
-	output: Map<string, FormattedOutputNode>;
-}
-
-
 /** Formatted node */
 export type FormattedInputNode =
 	| FormattedInputObject
@@ -41,10 +34,8 @@ export interface FormattedOutputObject {
 	escapedName: string;
 	/** Fields */
 	fields: formattedOutputField[];
-	/** Exec methods before fields validation */
-	before: MethodDescriptor[] | undefined
-	/** Exec methods After fields validation */
-	after: MethodDescriptor[] | undefined
+	/** Exec methods before and after fields validation */
+	wrappers: MethodDescriptor[] | undefined
 	/** JS DOCS */
 	jsDoc: string | undefined;
 	/** Deprecation message when exists */

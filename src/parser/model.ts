@@ -96,10 +96,8 @@ export interface OutputObject extends _Node {
 	inherit: string[] | undefined;
 	/** Fields */
 	fields: Map<string, OutputField>;
-	/** Exec methods before fields validation */
-	before: MethodDescriptor | undefined
-	/** Exec methods After fields validation */
-	after: MethodDescriptor | undefined
+	/** Wrap object validation */
+	wrappers: MethodDescriptor[] | undefined
 }
 
 /** Input Object  */

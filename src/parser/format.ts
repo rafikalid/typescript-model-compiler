@@ -1,31 +1,26 @@
-import ts from "typescript";
-import { FormatResponse, formattedInputField, FormattedInputNode, FormattedInputObject, formattedOutputField, FormattedOutputObject, FormattedOutputNode } from './formatted-model';
+import { formattedInputField, FormattedInputNode, formattedOutputField, FormattedOutputNode } from './formatted-model';
 import { parse } from './parser';
-import { InputNode, OutputNode, InputObject, OutputObject } from './model';
+import { InputNode, OutputNode, InputObject, OutputObject, InputField } from './model';
 import {
-	FieldType,
-	InputField,
-	List,
 	Kind,
-	OutputField,
-	Param,
-	Reference
+	OutputField
 } from './model';
 
 /** Format parsed results to generate usable model */
 export function format(
 	root: ReturnType<typeof parse>
-): FormatResponse {
+) {
 	return {
 		input: _resolveEntities(root.input, root.inputHelperEntities),
-		output: _resolveEntities(root.output, root.outputHelperEntities)
+		output: _resolveEntities(root.output, root.outputHelperEntities),
+		wrappers: root.rootWrappers
 	};
 }
 
 /** Resolve entities */
 function _resolveEntities(map: Map<string, InputNode>, helperEntities: Map<string, InputObject>): Map<string, FormattedInputNode>;
 function _resolveEntities(map: Map<string, OutputNode>, helperEntities: Map<string, OutputObject>): Map<string, FormattedOutputNode>;
-function _resolveEntities<T extends InputNode | OutputNode>(map: Map<string, T>, helperEntities: Map<string, T>) {
+function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntities: Map<string, InputObject | OutputObject>) {
 	const result: Map<string, FormattedInputNode | FormattedOutputNode> = new Map();
 	map.forEach((node, nodeName) => {
 		switch (node.kind) {
@@ -42,20 +37,30 @@ function _resolveEntities<T extends InputNode | OutputNode>(map: Map<string, T>,
 					throw `Missing types [${missingTypes.map(t => t.name).join(', ')}] on union "${node.name}" at ${node.fileNames.join(', ')}`;
 				break;
 			}
-			case Kind.INPUT_OBJECT:
-			case Kind.OUTPUT_OBJECT: {
-				let isInput = node.kind === Kind.INPUT_OBJECT;
-				let entity: FormattedInputNode | FormattedOutputNode = {
-					kind: isInput ? Kind.FORMATTED_INPUT_OBJECT : Kind.FORMATTED_OUTPUT_OBJECT,
+			case Kind.INPUT_OBJECT: {
+				let entity: FormattedInputNode = {
+					kind: Kind.FORMATTED_INPUT_OBJECT,
 					name: node.name,
 					escapedName: _escapeEntityName(node.name),
-					//TODO  resolve fields
-					fields: Array.from(node.fields.values() as Iterable<InputField>),
-					before: node.before == null ? [] : [node.before],
-					after: node.after == null ? [] : [node.after],
+					fields: _formatInputFields(node.fields),
+					wrappers: node.wrappers,
 					jsDoc: _compileJsDoc(node.jsDoc),
 					deprecated: node.deprecated
 				}
+				result.set(nodeName, entity);
+				break;
+			}
+			case Kind.OUTPUT_OBJECT: {
+				let entity: FormattedOutputNode = {
+					kind: Kind.FORMATTED_OUTPUT_OBJECT,
+					name: node.name,
+					escapedName: _escapeEntityName(node.name),
+					fields: _formatOutputFields(node.fields as Map<string, OutputField>),
+					wrappers: node.wrappers,
+					jsDoc: _compileJsDoc(node.jsDoc),
+					deprecated: node.deprecated
+				}
+				result.set(nodeName, entity);
 				break;
 			}
 			default:
@@ -64,6 +69,59 @@ function _resolveEntities<T extends InputNode | OutputNode>(map: Map<string, T>,
 		}
 	});
 	return result;
+
+	/** Format input fields */
+	function _formatInputFields(fields: Map<string, InputField>): formattedInputField[] {
+		const result: formattedInputField[] = [];
+		fields.forEach(function (field) {
+			// Look for implementation
+			const fieldImp = field.className ? helperEntities.get(field.className)?.fields.get(field.name) as InputField : undefined;
+			// Create formatted field
+			const formattedField: formattedInputField = {
+				kind: Kind.INPUT_FIELD,
+				name: field.name,
+				alias: field.alias,
+				required: field.required,
+				asserts: field.asserts,
+				className: field.className,
+				defaultValue: field.defaultValue,
+				deprecated: field.deprecated,
+				fileNames: field.fileNames,
+				idx: field.idx,
+				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
+				method: fieldImp?.method ?? field.method,
+				type: fieldImp?.type ?? field.type
+			};
+			result.push(formattedField);
+		});
+		return result;
+	}
+	/** Format output fields */
+	function _formatOutputFields(fields: Map<string, OutputField>): formattedOutputField[] {
+		const result: formattedOutputField[] = [];
+		fields.forEach(function (field) {
+			// Look for implementation
+			const fieldImp = field.className ? helperEntities.get(field.className)?.fields.get(field.name) as OutputField : undefined;
+			// Create formatted field
+			const formattedField: formattedOutputField = {
+				kind: Kind.OUTPUT_FIELD,
+				name: field.name,
+				alias: field.alias,
+				required: field.required,
+				className: field.className,
+				defaultValue: field.defaultValue,
+				deprecated: field.deprecated,
+				fileNames: field.fileNames,
+				idx: field.idx,
+				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
+				method: fieldImp?.method ?? field.method,
+				type: fieldImp?.type ?? field.type,
+				param: fieldImp?.param ?? field.param
+			};
+			result.push(formattedField);
+		});
+		return result;
+	}
 }
 
 /** Escape entity name */

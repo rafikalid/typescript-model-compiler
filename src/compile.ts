@@ -1,4 +1,4 @@
-import ts from "typescript";
+import ts, { factory } from "typescript";
 import { readFileSync } from 'fs';
 import { PACKAGE_NAME } from "./config";
 import { errorFile } from "./utils/error";
@@ -6,10 +6,12 @@ import { info, warn } from "./utils/log";
 import { normalize, resolve, dirname, relative } from 'path';
 import Glob from 'glob';
 import { parse as ParseModelFrom } from './parser/parser';
-import { format as formatModel } from './parser/format';
+import { format, format as formatModel } from './parser/format';
 import { printTree } from '@src/utils/console-print';
 import Through from 'through2';
 import Vinyl from 'vinyl';
+import { toDataModel, ToDataReturn } from './converters/to-data-model';
+import { toGraphQL } from "./converters/to-graphql";
 const TS_REGEX = /\.ts$/i
 
 /** Compiler::compile */
@@ -125,12 +127,43 @@ export class Compiler {
 		info(`Parsing >>`);
 		for (let i = 0, len = patternItems.length; i < len; ++i) {
 			let { files, patterns, resolvedFiles } = patternItems[i];
-			// Parse resolved files
+			//* Parse resolved files
 			let root = ParseModelFrom(resolvedFiles, program);
-			console.log('===ROOT===\n', printTree(root, '\t'));
-			// Format data
+			// console.log('===ROOT===\n', printTree(root, '\t'));
+			//* Format data
 			let formatted = formatModel(root);
-			console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
+			// console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
+			//* Add to target files
+			for (let j = 0, jLen = files.length; j < jLen; ++j) {
+				let { srcFile, node: targetNode, type: methodName } = files[j];
+				try {
+					//* Compile data
+					let { imports, node: resultNode } = this.convertData(factory, methodName, formatted, pretty);
+					//* Replace patterns
+					srcFile = ts.transform(srcFile, [function (ctx: ts.TransformationContext) {
+						function _visitor(node: ts.Node): ts.Node {
+							if (node === targetNode) return resultNode;
+							else return ts.visitEachChild(node, _visitor, ctx);
+						}
+						return _visitor;
+					}], compilerOptions).transformed[0] as ts.SourceFile;
+					//* Inject imports
+					if (imports.length) {
+						srcFile = factory.updateSourceFile(
+							srcFile,
+							[...imports, ...srcFile.statements],
+							false,
+							srcFile.referencedFiles,
+							srcFile.typeReferenceDirectives,
+							srcFile.hasNoDefaultLib,
+							srcFile.libReferenceDirectives
+						);
+					}
+					rootFiles.set(srcFile.fileName, srcFile);
+				} catch (err: any) {
+					if (typeof err === 'string') err = `Converter error: ${err} at ${errorFile(srcFile, targetNode)}`
+				}
+			}
 		}
 
 		let result = this.print(compilerOptions, rootFiles, transpile);
@@ -202,7 +235,7 @@ export class Compiler {
 
 	/** Resolve patterns, override this if you need to customize this logic */
 	_resolvePatterns(srcFiles: ts.SourceFile[]) {
-		return resolvePatterns(srcFiles, PACKAGE_NAME, 'Model', 'scan', 'toGraphQL');
+		return resolvePatterns(srcFiles, PACKAGE_NAME, 'Model', 'scan', 'scanGraphQL');
 	}
 
 	/** print files  */
@@ -224,6 +257,23 @@ export class Compiler {
 				let item = result[i];
 				item.content = ts.transpile(item.content, compilerOptions, item.path);
 			}
+		}
+		return result;
+	}
+
+	/** Inject data into files */
+	convertData(nodeFactory: ts.NodeFactory, methodName: string, data: ReturnType<typeof format>, pretty: boolean): ToDataReturn {
+		//* Convert data into ts nodes
+		let result: ToDataReturn;
+		switch (methodName) {
+			case 'scan':
+				result = toDataModel(nodeFactory, data, pretty);
+				break;
+			case 'scanGraphQL':
+				result = toGraphQL(nodeFactory, data, pretty);
+				break;
+			default:
+				throw `Unexpected method "${methodName}"`;
 		}
 		return result;
 	}
@@ -256,15 +306,18 @@ export function parseTsConfig(tsConfigPath: string) {
 
 /** Resolve patterns response */
 interface ResolvePatterns {
+	/** Pattern key */
 	id: string
+	/** List of separated patterns */
 	patterns: string[]
 	/** Files containing patterns */
 	files: {
 		srcFile: ts.SourceFile
 		node: ts.Node
+		/** Method type */
 		type: string
 	}[]
-	/** Resolved file paths by the pattern */
+	/** Paths of Resolved file by the pattern */
 	resolvedFiles: string[]
 }
 /** Resolve patterns */
@@ -312,7 +365,7 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 							//* Add result
 							let key = patterns
 								.slice(0) // create copy
-								.sort((a, b) => a.localeCompare(b)) // sort to get unified form
+								.sort((a, b) => a.localeCompare(b)) // sort to get unify form
 								.join(',');
 							let v = result.get(key);
 							if (v == null) {
@@ -328,7 +381,7 @@ export function resolvePatterns(srcFiles: readonly ts.SourceFile[], packageName:
 							} else {
 								v.files.push({
 									srcFile, node, type: propName
-								})
+								});
 							}
 						}
 					}
@@ -370,7 +423,4 @@ export function extractStringArgs(node: ts.CallExpression, srcFile: ts.SourceFil
 	}
 	return arr;
 }
-
-
-
 

@@ -21,6 +21,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 	const OUTPUT_ENTITIES: Map<string, OutputNode> = new Map();
 	//* Literal objects had no with missing name like Literal objects
 	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean | undefined, ref: Reference }[] = [];
+	/** Root wrappers: wrap root controller */
+	const rootWrappers: {
+		fileName: string,
+		name: string
+	}[] = [];
 	/** Helper entities */
 	const inputHelperEntities: Map<string, InputObject[]> = new Map();
 	const outputHelperEntities: Map<string, OutputObject[]> = new Map();
@@ -233,8 +238,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								fileNames: [fileName],
 								inherit: inheritedEntities,
 								jsDoc: jsDoc,
-								after: undefined,
-								before: undefined
+								wrappers: undefined
 							};
 							if (isImplementation) {
 								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
@@ -709,8 +713,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							fileNames: [fileName],
 							inherit: undefined,
 							jsDoc: jsDoc,
-							after: undefined,
-							before: undefined
+							wrappers: undefined
 						};
 						let typeRef: Reference = {
 							kind: Kind.REF,
@@ -841,60 +844,42 @@ export function parse(files: readonly string[], program: ts.Program) {
 												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
 													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
 												break;
-											case 'outputBefore': {
+											case 'wrapOutput': {
 												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.before != null)
-													throw `Already defined "${inputEntityName}::outputBefore" at ${errorFile(srcFile, property)}`;
-												entity.before = {
-													name: 'outputBefore',
+												(entity.wrappers ??= []).push({
+													name: 'wrapOutput',
 													className: nodeName,
 													fileName: fileName,
 													isClass: false,
 													isStatic: true
-												}
+												});
 												break;
 											}
-											case 'outputAfter': {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.after != null)
-													throw `Already defined "${entity.name}::outputAfter" at ${errorFile(srcFile, property)}`;
-												entity.after = {
-													name: 'outputAfter',
-													className: nodeName,
-													fileName: fileName,
-													isClass: false,
-													isStatic: true
-												}
-												break;
-											}
-											case 'inputBefore': {
+											case 'wrapInput': {
 												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.before != null)
-													throw `Already defined "${entity.name}::inputBefore" at ${errorFile(srcFile, property)}`;
-												entity.before = {
-													name: 'inputBefore',
+												(entity.wrappers ??= []).push({
+													name: 'wrapInput',
 													className: nodeName,
 													fileName: fileName,
 													isClass: false,
 													isStatic: true
-												}
-												break;
-											}
-											case 'inputAfter': {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.after != null)
-													throw `Already defined "${entity.name}::inputAfter" at ${errorFile(srcFile, property)}`;
-												entity.after = {
-													name: 'inputAfter',
-													className: nodeName,
-													fileName: fileName,
-													isClass: false,
-													isStatic: true
-												}
+												});
 												break;
 											}
 										}
 									}
+									break;
+								}
+								case 'rootWrappers': {
+									let obj = declaration.initializer;
+									if (obj == null)
+										throw `Missing wrapper method at ${errorFile(srcFile, declaration)}`;
+									if (!ts.isFunctionDeclaration(obj))
+										throw `Expected a function declaration to define the wrapper. Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
+									rootWrappers.push({
+										fileName: fileName,
+										name: declaration.name.getText()
+									});
 									break;
 								}
 							}
@@ -965,6 +950,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	return {
 		input: INPUT_ENTITIES,
 		output: OUTPUT_ENTITIES,
+		rootWrappers,
 		inputHelperEntities: _mergeEntityHelpers(inputHelperEntities),
 		outputHelperEntities: _mergeEntityHelpers(outputHelperEntities)
 	};
@@ -1049,8 +1035,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 				fileNames: [fileName],
 				inherit: undefined,
 				jsDoc: jsDoc?.slice(0) ?? [],
-				after: undefined,
-				before: undefined
+				wrappers: undefined
 			};
 			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}
@@ -1164,6 +1149,7 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 	const result: Map<string, T> = new Map();
 	entities.forEach((arr, name) => {
 		const obj = arr[0];
+		obj.wrappers ??= [];
 		for (let i = 1, len = arr.length; i < len; ++i) {
 			let node = arr[i];
 			obj.baseName ??= node.baseName;
@@ -1171,8 +1157,7 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 			if (obj.inherit == null) obj.inherit = node.inherit;
 			else if (node.inherit != null) obj.inherit.push(...node.inherit);
 			// before & after
-			obj.before ??= node.before;
-			obj.after ??= node.after;
+			if (node.wrappers != null) obj.wrappers.push(...node.wrappers);
 			// Fields
 			node.fields.forEach((field, fieldName) => {
 				let objField = obj.fields.get(fieldName);
@@ -1180,9 +1165,19 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 				else {
 					objField.alias ??= field.alias;
 					objField.defaultValue ??= field.defaultValue;
-					objField.method ??= field.method;
+
 					if (objField.kind === Kind.INPUT_FIELD) {
 						objField.asserts ??= (field as InputField).asserts;
+						if (objField.method == null) {
+							objField.method = field.method;
+							objField.type = field.type;
+						}
+					} else {
+						if (objField.method == null) {
+							objField.method = field.method;
+							objField.type = field.type;
+							objField.param = (field as OutputField).param;
+						}
 					}
 				}
 			});
