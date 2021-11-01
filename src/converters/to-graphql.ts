@@ -1,10 +1,11 @@
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
-import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField } from '@src/parser/formatted-model';
-import { FieldType, Kind, MethodDescriptor } from '../parser/model';
+import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject } from '@src/parser/formatted-model';
+import { FieldType, Kind, MethodDescriptor, Reference, List, Param, EnumMember } from '../parser/model';
 import { relative } from 'path';
 import { GraphQLSchemaConfig } from 'graphql';
+import { seek } from './seek';
 
 /**
  * Generate Graphql schema from data
@@ -19,6 +20,7 @@ export function toGraphQL(
 	}: ReturnType<typeof format>,
 	pretty: boolean
 ): ToDataReturn {
+	type SeekNode = FormattedOutputNode | FieldType | Param | EnumMember;
 	/** srcFile path */
 	const srcFilePath = srcFile.fileName;
 	/** Validation schema declarations by the API */
@@ -36,58 +38,17 @@ export function toGraphQL(
 	/** Create class objects */
 	const importCreateObjects: ts.VariableDeclaration[] = [];
 	//* Go through Model
-	const queue: (FormattedOutputNode | FieldType)[] = [];
+	const queue: SeekNode[] = [];
 	/** Is node visited for first time (as 0) or second time (as 1) */
-	const queueState: NodeVisit[] = [];
 	let node: FormattedOutputNode | undefined;
-	if (node = rootOutput.get('Subscription')) { queue.push(node); queueState.push(NodeVisit.FIRST_TIME); }
-	if (node = rootOutput.get('Mutation')) { queue.push(node); queueState.push(NodeVisit.FIRST_TIME); }
-	if (node = rootOutput.get('Query')) { queue.push(node); queueState.push(NodeVisit.FIRST_TIME); }
+	if (node = rootOutput.get('Subscription')) { queue.push(node); }
+	if (node = rootOutput.get('Mutation')) { queue.push(node); }
+	if (node = rootOutput.get('Query')) { queue.push(node); }
 	//* Create schema
 	/** Map entities to their vars */
 	const mapEntityVar: Map<string, ts.Identifier> = new Map();
-	rootLoop: while (true) {
-		// Get current node
-		const node = queue.pop();
-		if (node == null) break;
-		const nodeVisit = queueState.pop();
-		// Switch on node type
-		switch (node.kind) {
-			case Kind.FORMATTED_OUTPUT_OBJECT: {
-				if (nodeVisit === NodeVisit.FIRST_TIME) {
-					// Go through fields
-					for (let i = 0, fields = node.fields, len = fields.length; i < len; ++i) {
-						let field = fields[i];
-					}
-				} else {
-
-				}
-				break;
-			}
-			case Kind.ENUM: {
-				break;
-			}
-			case Kind.UNION: {
-				break;
-			}
-			case Kind.SCALAR: {
-				break;
-			}
-			case Kind.BASIC_SCALAR: {
-				break;
-			}
-			case Kind.LIST: {
-				break;
-			}
-			case Kind.REF: {
-				break;
-			}
-			default: {
-				let _never: never = node;
-				throw _never;
-			}
-		}
-	}
+	/** Go through nodes */
+	seek<SeekNode, {}>(queue, _seekOutputDown, _seekOutputUp);
 
 	//* Imports
 	const imports = _genImports(); // Generate imports from src
@@ -241,13 +202,106 @@ export function toGraphQL(
 		}
 		return f.createObjectLiteralExpression(fieldArr, pretty);
 	}
+
+	/** Seek down */
+	function _seekOutputDown(node: SeekNode, parentNode: SeekNode | undefined): SeekNode[] | undefined {
+		console.log('seek down>> ', Kind[node.kind], ': ', (node as FormattedOutputObject).name);
+		switch (node.kind) {
+			case Kind.FORMATTED_OUTPUT_OBJECT: {
+				let result: (FieldType | Param)[] = [];
+				for (let i = 0, fields = node.fields, len = fields.length; i < len; ++i) {
+					let field = fields[i];
+					result.push(field.type);
+					if (field.param != null) result.push(field.param);
+				}
+				console.log('--results: ', result.length)
+				return result;
+			}
+			case Kind.ENUM: {
+				let result: EnumMember[] = [];
+				for (let i = 0, fields = node.members, len = fields.length; i < len; ++i) {
+					let field = fields[i];
+					result.push(field);
+				}
+				return result;
+			}
+			case Kind.UNION: {
+				let result: Reference[] = [];
+				for (let i = 0, fields = node.types, len = fields.length; i < len; ++i) {
+					let field = fields[i];
+					result.push(field);
+				}
+				return result;
+			}
+			case Kind.LIST:
+				return [node.type];
+			case Kind.PARAM:
+				return node.type && [node.type];
+			case Kind.REF: {
+				let entityName = node.name;
+				if (mapEntityVar.has(entityName)) return undefined;
+				let entity = rootOutput.get(entityName);
+				if (entity == null) throw `Missing entity "${entityName}" referenced at ${node.fileName}`;
+				// Create entity var
+				let entityVar = f.createUniqueName(entity.escapedName);
+				mapEntityVar.set(entityName, entityVar);
+				return [entity];
+			}
+			case Kind.ENUM_MEMBER:
+			case Kind.BASIC_SCALAR:
+			case Kind.SCALAR:
+				return undefined;
+			default: {
+				let _never: never = node;
+				throw _never;
+			}
+		}
+	}
+	/** Seek up */
+	function _seekOutputUp(node: SeekNode, parentNode: SeekNode | undefined, childrenData: SeekOutputData[]): SeekOutputData {
+		console.log('seek UP>> ', Kind[node.kind], ': ', (node as FormattedOutputObject).name);
+		switch (node.kind) {
+			case Kind.FORMATTED_OUTPUT_OBJECT: {
+				break;
+			}
+			case Kind.ENUM: {
+				break;
+			}
+			case Kind.UNION: {
+				break;
+			}
+			case Kind.LIST: {
+				break;
+			}
+			case Kind.PARAM: {
+				break;
+			}
+			case Kind.REF: {
+				break;
+			}
+			case Kind.ENUM_MEMBER: {
+				break;
+			}
+			case Kind.SCALAR: {
+				break;
+			}
+			case Kind.BASIC_SCALAR: {
+				break;
+			}
+			default: {
+				let _never: never = node;
+				throw _never;
+			}
+		}
+		return {};
+	}
 }
 
-/** Node state: is node visited for the first time or second time */
-enum NodeVisit {
-	FIRST_TIME,
-	SECOND_TIME
-};
+/** Seek data */
+interface SeekOutputData {
+	node: ts.Node
+	hasCircle: boolean
+}
 
 /** Output Seek Queue */
 interface OutputSeekQueue {

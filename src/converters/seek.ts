@@ -31,51 +31,61 @@ export function seek<T, TData>(
 		});
 	}
 	// Seek
-	while (true) {
-		const item = queue.pop()!;
-		const { childrenData, state } = item;
-		let childReturnedData: TData;
-		switch (state) {
-			case NodeVisitState.GO_DOWN: {
-				let { node, parentNode } = item;
-				let childNodes = goDown(node, parentNode);
-				if (childNodes != null) {
-					for (let i = 0, len = childNodes.length; i < len; ++i) {
-						let childData: TData[] = [];
-						queue.push({
-							state: NodeVisitState.COLLECT_DATA,
-							childrenData: childrenData
-						}, {
-							node: childNodes[i],
-							parentNode: node,
-							state: NodeVisitState.GO_UP,
-							childrenData: childData
-						}, {
-							node: childNodes[i],
-							parentNode: node,
-							state: NodeVisitState.GO_DOWN,
-							childrenData: childData
-						});
+	const errors: string[] = []
+	var result: TData[];
+	rootLoop: while (true) {
+		try {
+			const item = queue.pop()!;
+			const { childrenData, state } = item;
+			let childReturnedData: TData;
+			switch (state) {
+				case NodeVisitState.GO_DOWN: {
+					let { node, parentNode } = item;
+					let childNodes = goDown(node, parentNode);
+					if (childNodes != null) {
+						for (let i = 0, len = childNodes.length; i < len; ++i) {
+							let childData: TData[] = [];
+							queue.push({
+								state: NodeVisitState.COLLECT_DATA,
+								childrenData: childrenData
+							}, {
+								node: childNodes[i],
+								parentNode: node,
+								state: NodeVisitState.GO_UP,
+								childrenData: childData
+							}, {
+								node: childNodes[i],
+								parentNode: node,
+								state: NodeVisitState.GO_DOWN,
+								childrenData: childData
+							});
+						}
 					}
+					break;
 				}
-				break;
+				case NodeVisitState.COLLECT_DATA: {
+					// @ts-ignore
+					childrenData.push(childReturnedData);
+					break;
+				}
+				case NodeVisitState.GO_UP: {
+					let { node, parentNode } = item;
+					childReturnedData = goUp(node, parentNode, childrenData);
+					break;
+				}
+				case NodeVisitState.ROOT_NODE: {
+					//* The end of seek
+					result = childrenData;
+					break rootLoop;
+				}
 			}
-			case NodeVisitState.COLLECT_DATA: {
-				// @ts-ignore
-				childrenData.push(childReturnedData);
-				break;
-			}
-			case NodeVisitState.GO_UP: {
-				let { node, parentNode } = item;
-				childReturnedData = goUp(node, parentNode, childrenData);
-				break;
-			}
-			case NodeVisitState.ROOT_NODE: {
-				//* The end of seek
-				return childrenData;
-			}
+		} catch (error) {
+			if (typeof error === 'string') errors.push(error);
+			else throw error;
 		}
 	}
+	if (errors.length != 0) throw '•' + errors.join("\n•");
+	return result;
 }
 
 /** Node Visit state */

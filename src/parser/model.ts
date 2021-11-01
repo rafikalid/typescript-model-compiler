@@ -1,5 +1,6 @@
 //** PARSER MODEL
 
+import { DEFAULT_SCALARS } from "tt-model";
 import ts from "typescript";
 
 /** Kinds */
@@ -171,6 +172,8 @@ export interface Enum extends _Node {
 	kind: Kind.ENUM;
 	baseName: string | undefined
 	members: EnumMember[];
+	/** Escaped name to use with graphql */
+	escapedName: string;
 }
 
 /** ENUM member */
@@ -187,6 +190,8 @@ export interface Union extends _Node {
 	/** TODO convert this to references to plain objects */
 	types: Reference[];
 	parser: MethodDescriptor | undefined;
+	/** Escaped name to use with graphql */
+	escapedName: string;
 }
 
 /** Assert options */
@@ -217,12 +222,16 @@ export interface AssertOptions {
 export interface Scalar extends _Node {
 	kind: Kind.SCALAR;
 	parser: MethodDescriptor;
+	/** Escaped name to use with graphql */
+	escapedName: string;
 }
 
 /** Basic scalar */
 export interface BasicScalar extends _Node {
 	kind: Kind.BASIC_SCALAR;
-	name: string;
+	name: typeof DEFAULT_SCALARS[number];
+	/** Escaped name to use with graphql */
+	escapedName: string;
 }
 
 /** Generic reference or operation: Example: Page<User>, Partial<Booking> */

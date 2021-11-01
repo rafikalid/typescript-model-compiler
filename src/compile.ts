@@ -1,4 +1,4 @@
-import ts, { factory } from "typescript";
+import ts from "typescript";
 import { readFileSync } from 'fs';
 import { PACKAGE_NAME } from "./config";
 import { errorFile } from "./utils/error";
@@ -54,6 +54,7 @@ export class Compiler {
 		let filePaths: Set<string>;
 		let mapFiles: Map<string, string>;
 		const compilerOptions = this.#compilerOptions;
+		const factory = ts.factory;
 		//* Load file data & paths
 		info(`Load Content >>`);
 		if (Array.isArray(files)) {

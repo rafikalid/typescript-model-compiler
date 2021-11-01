@@ -41,7 +41,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				let entity: FormattedInputNode = {
 					kind: Kind.FORMATTED_INPUT_OBJECT,
 					name: node.name,
-					escapedName: _escapeEntityName(node.name),
+					escapedName: escapeEntityName(node.name),
 					fields: _formatInputFields(node.fields),
 					wrappers: node.wrappers,
 					jsDoc: _compileJsDoc(node.jsDoc),
@@ -54,7 +54,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				let entity: FormattedOutputNode = {
 					kind: Kind.FORMATTED_OUTPUT_OBJECT,
 					name: node.name,
-					escapedName: _escapeEntityName(node.name),
+					escapedName: escapeEntityName(node.name),
 					fields: _formatOutputFields(node.fields as Map<string, OutputField>),
 					wrappers: node.wrappers,
 					jsDoc: _compileJsDoc(node.jsDoc),
@@ -89,9 +89,13 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				fileNames: field.fileNames,
 				idx: field.idx,
 				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
-				method: fieldImp?.method ?? field.method,
-				type: fieldImp?.type ?? field.type
+				method: field.method,
+				type: field.type
 			};
+			if (formattedField.method == null && fieldImp != null && fieldImp.method != null) {
+				formattedField.method = fieldImp.method;
+				formattedField.type = fieldImp.type;
+			}
 			result.push(formattedField);
 		});
 		return result;
@@ -114,10 +118,15 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				fileNames: field.fileNames,
 				idx: field.idx,
 				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
-				method: fieldImp?.method ?? field.method,
-				type: fieldImp?.type ?? field.type,
-				param: fieldImp?.param ?? field.param
+				method: field.method,
+				type: field.type,
+				param: field.param
 			};
+			if (formattedField.method == null && fieldImp != null && fieldImp.method != null) {
+				formattedField.method = fieldImp.method;
+				formattedField.type = fieldImp.type;
+				formattedField.param = fieldImp.param;
+			}
 			result.push(formattedField);
 		});
 		return result;
@@ -125,7 +134,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 }
 
 /** Escape entity name */
-function _escapeEntityName(name: string) {
+export function escapeEntityName(name: string) {
 	return name.replace(/[<\[,|.-]/g, '_')
 		.replace(/\W/g, '');
 }

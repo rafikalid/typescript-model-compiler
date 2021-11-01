@@ -11,6 +11,7 @@ const parseYaml = Yaml.parse;
 import strMath from 'string-math';
 import bytes from 'bytes';
 import { DEFAULT_SCALARS } from "tt-model";
+import { escapeEntityName } from "./format";
 
 /**
  * Extract Model from typescript code
@@ -137,7 +138,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							if (typeof tag.comment === 'string')
 								fieldAlias = tag.comment.trim().split(/\s/, 1)[0];
 							break;
-						case 'entity':
+						case 'resolvers':
 							/** Interpret methods as resolvers */
 							isResolversImplementation = true;
 							break;
@@ -215,7 +216,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 					}
 					// Check if is entity or entity implementation (ie: resolvers or generic entity)
 					let isImplementation = implementedEntities != null;
-					isResolversImplementation = isImplementation;
+					isResolversImplementation = isImplementation || isResolversImplementation; // Set by @entity or helper class
 					if (!isImplementation && nodeEntity.typeParameters?.length) {
 						isImplementation = true;
 						implementedEntities = [entityName];
@@ -508,6 +509,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								entity = {
 									kind: Kind.ENUM,
 									name: refName,
+									escapedName: escapeEntityName(refName),
 									baseName: refName,
 									deprecated: deprecated,
 									jsDoc: jsDoc,
@@ -565,6 +567,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								entity = {
 									kind: Kind.UNION,
 									name: refName,
+									escapedName: escapeEntityName(refName),
 									baseName: _getUnionNameFromTypes(refTypes),
 									deprecated: deprecated,
 									jsDoc: jsDoc,
@@ -650,6 +653,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						entity = {
 							kind: Kind.ENUM,
 							name: nodeName,
+							escapedName: escapeEntityName(nodeName),
 							baseName: nodeName,
 							deprecated: deprecated,
 							jsDoc: jsDoc,
@@ -758,6 +762,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 									let scalarEntity: Scalar = {
 										kind: Kind.SCALAR,
 										name: fieldName,
+										escapedName: escapeEntityName(fieldName),
 										deprecated: deprecated,
 										jsDoc: jsDoc,
 										parser: {
@@ -788,6 +793,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 											kind: Kind.UNION,
 											name: unionName,
 											baseName: fieldName,
+											escapedName: escapeEntityName(fileName),
 											deprecated: deprecated,
 											jsDoc: jsDoc,
 											types: [],
@@ -918,6 +924,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 		let scalarNode: BasicScalar = {
 			kind: Kind.BASIC_SCALAR,
 			name: fieldName,
+			escapedName: escapeEntityName(fieldName),
 			deprecated: undefined,
 			fileNames: [],
 			jsDoc: []
