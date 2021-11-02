@@ -951,8 +951,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 		item.ref.name = itemName;
 		(targetMap as Map<string, InputObject | OutputObject>).set(itemName, node);
 	}
-	//* Merge Helpers
-
 	//* Return
 	return {
 		input: INPUT_ENTITIES,

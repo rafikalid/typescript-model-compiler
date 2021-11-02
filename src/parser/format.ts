@@ -1,4 +1,4 @@
-import { formattedInputField, FormattedInputNode, formattedOutputField, FormattedOutputNode } from './formatted-model';
+import { FormattedEnum, FormattedEnumMember, formattedInputField, FormattedInputNode, FormattedNode, formattedOutputField, FormattedOutputNode } from './formatted-model';
 import { parse } from './parser';
 import { InputNode, OutputNode, InputObject, OutputObject, InputField } from './model';
 import {
@@ -26,11 +26,12 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 		switch (node.kind) {
 			case Kind.BASIC_SCALAR:
 			case Kind.SCALAR:
-			case Kind.ENUM:
-				result.set(nodeName, node);
+				(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
+				result.set(nodeName, node as any as FormattedInputNode);
 				break;
 			case Kind.UNION: {
-				result.set(nodeName, node);
+				(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
+				result.set(nodeName, node as any as FormattedInputNode);
 				// Check types found
 				let missingTypes = node.types.filter(t => !result.has(t.name));
 				if (missingTypes.length > 0)
@@ -61,6 +62,15 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					deprecated: node.deprecated
 				}
 				result.set(nodeName, entity);
+				break;
+			}
+			case Kind.ENUM: {
+				(node as any as FormattedEnum).jsDoc = _compileJsDoc(node.jsDoc);
+				result.set(nodeName, node as any as FormattedEnum);
+				for (let i = 0, members = node.members, len = members.length; i < len; ++i) {
+					let member = members[i];
+					(member as any as FormattedEnumMember).jsDoc = _compileJsDoc(member.jsDoc);
+				}
 				break;
 			}
 			default:

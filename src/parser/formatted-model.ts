@@ -1,6 +1,7 @@
 import {
 	BasicScalar,
 	Enum,
+	EnumMember,
 	InputField,
 	MethodDescriptor,
 	Kind,
@@ -13,16 +14,30 @@ import {
 /** Formatted node */
 export type FormattedInputNode =
 	| FormattedInputObject
-	| Enum
-	| Union
-	| Scalar
-	| BasicScalar;
+	| FormattedEnum
+	| FormattedUnion
+	| FormattedScalar
+	| FormattedBasicScalar;
 export type FormattedOutputNode =
 	| FormattedOutputObject
-	| Enum
-	| Union
-	| Scalar
-	| BasicScalar;
+	| FormattedEnum
+	| FormattedUnion
+	| FormattedScalar
+	| FormattedBasicScalar;
+
+/** Formatted Node */
+export interface FormattedNode {
+	jsDoc: string | undefined
+}
+type _FormattedNodeKeys = keyof FormattedNode;
+type _Formatted<T> = Omit<T, _FormattedNodeKeys> & FormattedNode;
+
+/** Formatted enum */
+export type FormattedEnumMember = _Formatted<EnumMember>;
+export type FormattedEnum = Omit<Enum, 'jsDoc' | 'members'> & { jsDoc: string | undefined, members: FormattedEnumMember[] };
+export type FormattedUnion = _Formatted<Union>;
+export type FormattedScalar = _Formatted<Scalar>;
+export type FormattedBasicScalar = _Formatted<BasicScalar>;
 
 
 /** Output Plain object */

@@ -1,7 +1,12 @@
 /** Create tree seeker */
 export function seek<T, TData>(
 	rootNodes: T | T[],
-	goDown: (node: T, parentNode: T | undefined) => T[] | undefined,
+	/**
+	 * @return  T[]	- List of children
+	 * @return  undefined	- No child or already created
+	 * @return  false	- Circulation: Same parent is referenced
+	 */
+	goDown: (node: T, parentNode: T | undefined) => T[] | false | undefined,
 	goUp: (node: T, parentNode: T | undefined, childrenData: TData[]) => TData
 ): TData[] {
 	const rootChildrenData: TData[] = [];
@@ -42,7 +47,10 @@ export function seek<T, TData>(
 				case NodeVisitState.GO_DOWN: {
 					let { node, parentNode } = item;
 					let childNodes = goDown(node, parentNode);
-					if (childNodes != null) {
+					if (childNodes === false) {
+						//* Circulation detected
+					} else if (childNodes != null) {
+						//* Go through children
 						for (let i = 0, len = childNodes.length; i < len; ++i) {
 							let childData: TData[] = [];
 							queue.push({
