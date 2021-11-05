@@ -162,7 +162,8 @@ export class Compiler {
 					}
 					rootFiles.set(srcFile.fileName, srcFile);
 				} catch (err: any) {
-					if (typeof err === 'string') err = `Converter error: ${err} at ${errorFile(srcFile, targetNode)}`
+					if (typeof err === 'string') err = `Converter error: ${err} at ${errorFile(srcFile, targetNode)}`;
+					else throw err;
 				}
 			}
 		}
@@ -246,10 +247,16 @@ export class Compiler {
 		const result: CompileResult[] = [];
 		const tsPrinter = ts.createPrinter();
 		files.forEach(function (srcFile, path) {
-			result.push({
-				path,
-				content: tsPrinter.printFile(srcFile)
-			});
+			try {
+
+				result.push({
+					path,
+					content: tsPrinter.printFile(srcFile)
+				});
+			} catch (error) {
+				console.log('path>>', path);
+				console.log('>>', error);
+			}
 		});
 		//* Transpile to JS
 		if (transpile === true) {

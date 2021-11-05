@@ -145,8 +145,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 
 /** Escape entity name */
 export function escapeEntityName(name: string) {
-	return name.replace(/[<\[,|.-]/g, '_')
-		.replace(/\W/g, '');
+	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_');
 }
 
 /** Sort jsDoc */
@@ -158,25 +157,29 @@ const sortJsDocKeywords = [
 	'inherit-from'
 ];
 /** Compile js Doc */
-function _compileJsDoc(arr: string[]): string | undefined {
-	var arr2 = [];
-	for (let i = 0, len = arr.length; i < len; ++i) {
-		let t = arr[i]?.trim();
-		if (t && arr2.indexOf(t) === -1) arr2.push(t);
+function _compileJsDoc(arr: string[] | string | undefined): string | undefined {
+	if (arr == null) return undefined;
+	else if (typeof arr === 'string') return arr;
+	else {
+		var arr2 = [];
+		for (let i = 0, len = arr.length; i < len; ++i) {
+			let t = arr[i]?.trim();
+			if (t && arr2.indexOf(t) === -1) arr2.push(t);
+		}
+		if (arr2.length === 0) return undefined
+		else return arr2.sort((a, b) => {
+			if (a.startsWith('@')) {
+				if (b.startsWith('@')) {
+					let i = a.indexOf(' ');
+					let at = i === -1 ? a : a.substr(0, i);
+					i = b.indexOf(' ');
+					let bt = i === -1 ? b : b.substr(0, i);
+					return (
+						sortJsDocKeywords.indexOf(at) -
+						sortJsDocKeywords.indexOf(bt)
+					);
+				} else return 1;
+			} else return -1;
+		}).join("\n");
 	}
-	if (arr2.length === 0) return undefined
-	else return arr2.sort((a, b) => {
-		if (a.startsWith('@')) {
-			if (b.startsWith('@')) {
-				let i = a.indexOf(' ');
-				let at = i === -1 ? a : a.substr(0, i);
-				i = b.indexOf(' ');
-				let bt = i === -1 ? b : b.substr(0, i);
-				return (
-					sortJsDocKeywords.indexOf(at) -
-					sortJsDocKeywords.indexOf(bt)
-				);
-			} else return 1;
-		} else return -1;
-	}).join("\n");
 }

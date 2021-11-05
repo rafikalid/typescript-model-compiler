@@ -114,14 +114,14 @@ export function toGraphQL(
 		let id = ttModelImports.get(name);
 		if (id == null) {
 			id = f.createUniqueName(name);
-			gqlImports.set(name, id);
+			ttModelImports.set(name, id);
 		}
 		return id;
 	}
 	/** Generate import declaration for graphQl & tt-model */
 	function _genImportDeclaration(packageName: string, map: Map<string, ts.Identifier>) {
 		const specifiers: ts.ImportSpecifier[] = [];
-		gqlImports.forEach((id, name) => {
+		map.forEach((id, name) => {
 			specifiers.push(
 				f.createImportSpecifier(f.createIdentifier(name), id)
 			);

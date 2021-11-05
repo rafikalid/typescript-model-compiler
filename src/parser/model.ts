@@ -92,7 +92,7 @@ export interface _Node {
 export interface OutputObject extends _Node {
 	kind: Kind.OUTPUT_OBJECT;
 	/** Name without generic parameters */
-	baseName: string | undefined;
+	escapedName: string | undefined;
 	/** inherited classes and interfaces */
 	inherit: string[] | undefined;
 	/** Fields */
@@ -170,7 +170,6 @@ export interface List extends Omit<_Node, 'name'> {
 /** ENUM */
 export interface Enum extends _Node {
 	kind: Kind.ENUM;
-	baseName: string | undefined
 	members: EnumMember[];
 	/** Escaped name to use with graphql */
 	escapedName: string;
@@ -185,8 +184,6 @@ export interface EnumMember extends _Node {
 /** UNION */
 export interface Union extends _Node {
 	kind: Kind.UNION;
-	/** Union name to use in APIs */
-	baseName: string | undefined
 	/** TODO convert this to references to plain objects */
 	types: Reference[];
 	parser: MethodDescriptor | undefined;

@@ -233,7 +233,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							entity = {
 								kind: isResolveInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
 								name: entityName,
-								baseName: nodeEntity.name?.getText()!,
+								escapedName: escapeEntityName(entityName),
 								fields: new Map(),
 								deprecated: deprecated,
 								fileNames: [fileName],
@@ -453,30 +453,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 					//* Check if simple type name
 					let refTypes = _removePromiseAndNull(nodeType);
 					if (refTypes.length === 0) throw `Field has empty type: "${_getNodeName(node, srcFile)}" at ${errorFile(srcFile, node)}`;
-					// Check if array list
-					// let allAreArrays = true;
-					// let arrTypeNodes: ts.ArrayTypeNode[] = [];
-					// for (let i = 0, len = refTypes.length; i < len; ++i) {
-					// 	let t = refTypes[i];
-					// 	let tNode: ts.TypeNode | undefined;
-					// 	if (
-					// 		t.symbol == null ||
-					// 		(tNode = typeChecker.typeToTypeNode(t, t.symbol.valueDeclaration, ts.NodeBuilderFlags.AllowUniqueESSymbolType)) == null ||
-					// 		-!ts.isArrayTypeNode(tNode)
-					// 	) {
-					// 		allAreArrays = false;
-					// 		break;
-					// 	} else {
-					// 		arrTypeNodes.push(tNode);
-					// 	}
-					// }
-					// if (allAreArrays) {
-					// 	//* Array
-					// 	let arrTypeNode: ts.ArrayTypeNode;
-					// 	if (arrTypeNodes.length === 1) arrTypeNode = arrTypeNodes[0];
-					// 	else arrTypeNode = factory.createArrayTypeNode(factory.createUnionTypeNode(arrTypeNodes.map(t => t.elementType)));
-					// 	visitor.push(arrTypeNode, typeChecker.getTypeFromTypeNode(arrTypeNode), pDesc, srcFile, isInput, entityName);
-					// } else {
 					let typeNode = _cleanReference(node as ts.TypeNode)
 					if (typeNode == null) throw `Empty Type Declaration: "${_getNodeName(node, srcFile)}" at ${errorFile(srcFile, node)}`;
 					let refName = _getNodeName(typeNode, srcFile);
@@ -510,7 +486,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 									kind: Kind.ENUM,
 									name: refName,
 									escapedName: escapeEntityName(refName),
-									baseName: refName,
 									deprecated: deprecated,
 									jsDoc: jsDoc,
 									members: [],
@@ -568,7 +543,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 									kind: Kind.UNION,
 									name: refName,
 									escapedName: escapeEntityName(refName),
-									baseName: _getUnionNameFromTypes(refTypes),
+									// baseName: _getUnionNameFromTypes(refTypes),
 									deprecated: deprecated,
 									jsDoc: jsDoc,
 									types: [],
@@ -654,7 +629,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 							kind: Kind.ENUM,
 							name: nodeName,
 							escapedName: escapeEntityName(nodeName),
-							baseName: nodeName,
 							deprecated: deprecated,
 							jsDoc: jsDoc,
 							members: [],
@@ -711,7 +685,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let entity: InputObject | OutputObject = {
 							kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
 							name: entityName,
-							baseName: entityName,
+							escapedName: escapeEntityName(entityName),
 							fields: new Map(),
 							deprecated: deprecated,
 							fileNames: [fileName],
@@ -792,12 +766,17 @@ export function parse(files: readonly string[], program: ts.Program) {
 										entity = {
 											kind: Kind.UNION,
 											name: unionName,
-											baseName: fieldName,
-											escapedName: escapeEntityName(fileName),
+											escapedName: escapeEntityName(fieldName),
 											deprecated: deprecated,
 											jsDoc: jsDoc,
 											types: [],
-											parser: undefined,
+											parser: {
+												fileName: fileName,
+												className: nodeName,
+												isStatic: true,
+												name: 'resolveType',
+												isClass: false
+											},
 											fileNames: [fileName]
 										};
 										INPUT_ENTITIES.set(unionName, entity);
@@ -811,6 +790,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 										entity.jsDoc.push(...jsDoc);
 										entity.deprecated ??= deprecated;
 										entity.fileNames.push(fileName);
+										entity.parser ??= {
+											fileName: fileName,
+											className: nodeName,
+											isStatic: true,
+											name: 'resolveType',
+											isClass: false
+										};
 									}
 									// Add child entities
 									let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
@@ -929,8 +915,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 			fileNames: [],
 			jsDoc: []
 		};
-		if (!INPUT_ENTITIES.has(fieldName)) INPUT_ENTITIES.set(fieldName, scalarNode);
-		if (!OUTPUT_ENTITIES.has(fieldName)) OUTPUT_ENTITIES.set(fieldName, scalarNode);
+		let entity = INPUT_ENTITIES.get(fieldName);
+		if (entity == null || entity.kind === Kind.UNION) {
+			INPUT_ENTITIES.set(fieldName, scalarNode);
+			OUTPUT_ENTITIES.set(fieldName, scalarNode);
+		}
 	}
 	//* Resolve nameless entities
 	for (
@@ -1034,7 +1023,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 			entity = {
 				kind: isInput ? Kind.INPUT_OBJECT : Kind.OUTPUT_OBJECT,
 				name: name,
-				baseName: name,
+				escapedName: escapeEntityName(name),
 				fields: new Map(),
 				deprecated: deprecated,
 				fileNames: [fileName],
@@ -1157,7 +1146,7 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 		obj.wrappers ??= [];
 		for (let i = 1, len = arr.length; i < len; ++i) {
 			let node = arr[i];
-			obj.baseName ??= node.baseName;
+			obj.escapedName ??= node.escapedName;
 			// Inheritance
 			if (obj.inherit == null) obj.inherit = node.inherit;
 			else if (node.inherit != null) obj.inherit.push(...node.inherit);
