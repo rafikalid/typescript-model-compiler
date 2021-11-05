@@ -38,11 +38,11 @@ export function seek<T, TData>(
 	// Seek
 	const errors: string[] = []
 	var result: TData[];
+	var childReturnedData: TData;
 	rootLoop: while (true) {
 		try {
 			const item = queue.pop()!;
 			const { childrenData, state } = item;
-			let childReturnedData: TData;
 			switch (state) {
 				case NodeVisitState.GO_DOWN: {
 					let { node, parentNode } = item;

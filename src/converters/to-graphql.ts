@@ -200,12 +200,16 @@ export function toGraphQL(
 		var fieldArr: ts.ObjectLiteralElementLike[] = [];
 		for (let k in obj) {
 			let v = obj[k];
-			if (v == null) v = f.createIdentifier('undefined');
-			else if (typeof v === 'string') v = f.createStringLiteral(v);
-			else if (typeof v === 'number') v = f.createNumericLiteral(v);
-			else if (typeof v === 'boolean')
-				v = v === true ? f.createTrue() : f.createFalse();
-			fieldArr.push(f.createPropertyAssignment(f.createIdentifier(k), v));
+			if ((v as ts.Expression)?.kind === ts.SyntaxKind.MethodDeclaration) {
+				fieldArr.push(v as any as ts.MethodDeclaration);
+			} else {
+				if (v == null) v = f.createIdentifier('undefined');
+				else if (typeof v === 'string') v = f.createStringLiteral(v);
+				else if (typeof v === 'number') v = f.createNumericLiteral(v);
+				else if (typeof v === 'boolean')
+					v = v === true ? f.createTrue() : f.createFalse();
+				fieldArr.push(f.createPropertyAssignment(f.createIdentifier(k), v));
+			}
 		}
 		return f.createObjectLiteralExpression(fieldArr, pretty);
 	}
