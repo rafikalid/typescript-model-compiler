@@ -12,6 +12,7 @@ import Through from 'through2';
 import Vinyl from 'vinyl';
 import { toDataModel, ToDataReturn } from './converters/to-data-model';
 import { toGraphQL } from "./converters/to-graphql";
+import { _resolveImports } from "./utils/resolve-imports";
 const TS_REGEX = /\.ts$/i
 
 /** Compiler::compile */
@@ -19,6 +20,8 @@ export interface CompileResult {
 	path: string,
 	content: string
 }
+
+export type TargetExtension = '.js' | '.mjs' | '.cjs';
 
 /** Compile and resolve Model */
 export class Compiler {
@@ -49,8 +52,12 @@ export class Compiler {
 	compile(
 		files: string[] | Map<string, string>,
 		pretty: boolean = true,
-		transpile: boolean = false
+		targetExtension?: TargetExtension
 	): CompileResult[] {
+		// Target extension
+		if (targetExtension != null && targetExtension !== '.js' && targetExtension !== '.mjs' && targetExtension !== '.cjs')
+			throw new Error(`Unsupported extension: ${targetExtension}`);
+		// prepare
 		let filePaths: Set<string>;
 		let mapFiles: Map<string, string>;
 		const compilerOptions = this.#compilerOptions;
@@ -90,7 +97,7 @@ export class Compiler {
 		let patternItems = Array.from(mapPatterns.values());
 		if (patternItems.length === 0) {
 			warn('--- No pattern found on all files ---');
-			let result = this.print(compilerOptions, rootFiles, transpile);
+			let result = this.print(compilerOptions, rootFiles, targetExtension);
 			info('</DONE>')
 			return result;
 		}
@@ -139,7 +146,7 @@ export class Compiler {
 				let { srcFile, node: targetNode, type: methodName } = files[j];
 				try {
 					//* Compile data
-					let { imports, node: resultNode } = this.convertData(factory, srcFile, methodName, formatted, pretty);
+					let { imports, node: resultNode } = this.convertData(factory, srcFile, methodName, formatted, pretty, targetExtension);
 					//* Replace patterns
 					srcFile = ts.transform(srcFile, [function (ctx: ts.TransformationContext) {
 						function _visitor(node: ts.Node): ts.Node {
@@ -168,7 +175,7 @@ export class Compiler {
 			}
 		}
 
-		let result = this.print(compilerOptions, rootFiles, transpile);
+		let result = this.print(compilerOptions, rootFiles, targetExtension);
 		info('</DONE>')
 		return result;
 	}
@@ -177,9 +184,11 @@ export class Compiler {
 	#filesInfo: Map<string, { cwd: string, base: string }> = new Map();
 	/**
 	 * Gulp adapter
-	 * @param { boolean }	transpile	- Transpile files to javascript
 	 */
-	gulp(pretty = true, transpile?: boolean) {
+	gulp(
+		pretty = true,
+		targetExtension?: '.js' | '.mjs' | undefined
+	) {
 		const files: Map<string, string> = new Map();
 		const self = this;
 		const filesInfo = this.#filesInfo;
@@ -214,7 +223,7 @@ export class Compiler {
 		}, function (cb: Through.TransformCallback) {
 			try {
 				//* Compile files
-				let result = self.compile(files, pretty, transpile);
+				let result = self.compile(files, pretty, targetExtension);
 				for (let i = 0, len = result.length; i < len; ++i) {
 					let item = result[i];
 					let path = item.path;
@@ -222,7 +231,7 @@ export class Compiler {
 					if (info == null)
 						throw new Error(`Unexpected missing file info: ${path}`);
 					this.push(new Vinyl({
-						path: transpile ? path.replace(TS_REGEX, '.js') : path,
+						path: targetExtension ? path.replace(TS_REGEX, targetExtension) : path,
 						base: info.base,
 						cwd: info.cwd,
 						contents: Buffer.from(item.content, 'utf-8')
@@ -241,11 +250,18 @@ export class Compiler {
 	}
 
 	/** print files  */
-	print(compilerOptions: ts.CompilerOptions, files: Map<string, ts.SourceFile>, transpile: boolean) {
+	print(
+		compilerOptions: ts.CompilerOptions,
+		files: Map<string, ts.SourceFile>,
+		targetExtension?: TargetExtension
+	) {
+		const tsPrinter = ts.createPrinter();
+		//* Resolve imports
+		if (targetExtension != null)
+			files = _resolveImports(tsPrinter, compilerOptions, files, targetExtension);
 		//* Print files
 		info(`Print files >>`);
 		const result: CompileResult[] = [];
-		const tsPrinter = ts.createPrinter();
 		files.forEach(function (srcFile, path) {
 			try {
 
@@ -259,7 +275,7 @@ export class Compiler {
 			}
 		});
 		//* Transpile to JS
-		if (transpile === true) {
+		if (targetExtension !== null) {
 			info('Compile to JS>>');
 			for (let i = 0, len = result.length; i < len; ++i) {
 				let item = result[i];
@@ -270,15 +286,22 @@ export class Compiler {
 	}
 
 	/** Inject data into files */
-	convertData(nodeFactory: ts.NodeFactory, srcFile: ts.SourceFile, methodName: string, data: ReturnType<typeof format>, pretty: boolean): ToDataReturn {
+	convertData(
+		nodeFactory: ts.NodeFactory,
+		srcFile: ts.SourceFile,
+		methodName: string,
+		data: ReturnType<typeof format>,
+		pretty: boolean,
+		targetExtension: TargetExtension | undefined
+	): ToDataReturn {
 		//* Convert data into ts nodes
 		let result: ToDataReturn;
 		switch (methodName) {
 			case 'scan':
-				result = toDataModel(nodeFactory, srcFile, data, pretty);
+				result = toDataModel(nodeFactory, srcFile, data, pretty, targetExtension);
 				break;
 			case 'scanGraphQL':
-				result = toGraphQL(nodeFactory, srcFile, data, pretty);
+				result = toGraphQL(nodeFactory, srcFile, data, pretty, targetExtension);
 				break;
 			default:
 				throw `Unexpected method "${methodName}"`;
@@ -431,4 +454,3 @@ export function extractStringArgs(node: ts.CallExpression, srcFile: ts.SourceFil
 	}
 	return arr;
 }
-

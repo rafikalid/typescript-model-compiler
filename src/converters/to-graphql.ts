@@ -3,9 +3,10 @@ import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
 import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion } from '@src/parser/formatted-model';
 import { FieldType, Kind, MethodDescriptor, Reference, List, Param, EnumMember, BasicScalar } from '../parser/model';
-import { relative } from 'path';
+import { relative, dirname } from 'path';
 import { GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
+import { TargetExtension } from '@src/compile';
 
 /**
  * Generate Graphql schema from data
@@ -18,7 +19,8 @@ export function toGraphQL(
 		output: rootOutput,
 		wrappers: rootWrappers
 	}: ReturnType<typeof format>,
-	pretty: boolean
+	pretty: boolean,
+	targetExtension: TargetExtension | undefined
 ): ToDataReturn {
 	type SeekNode = FormattedOutputNode | FieldType | FormattedEnumMember | formattedOutputField;
 	/** srcFile path */
@@ -154,6 +156,8 @@ export function toGraphQL(
 	/** Generate Local imports */
 	function _genImports() {
 		const imports: ts.ImportDeclaration[] = [];
+		const srcFileDir = dirname(srcFilePath);
+		const ext = targetExtension ?? '';
 		srcImports.forEach((entry, filename) => {
 			const specifiers: ts.ImportSpecifier[] = [];
 			entry.forEach(({ isClass, varName }, className) => {
@@ -186,7 +190,7 @@ export function toGraphQL(
 						f.createNamedImports(specifiers)
 					),
 					f.createStringLiteral(
-						_relative(srcFilePath, filename.replace(/\.tsx?$/, ''))
+						_relative(srcFileDir, filename.replace(/\.tsx?$/, ext))
 					)
 				)
 			);
@@ -317,6 +321,8 @@ export function toGraphQL(
 						])
 					)
 				);
+				// Add var
+				mapEntityVar.set(entity.name, vName);
 				break;
 			}
 			case Kind.OUTPUT_FIELD: {
@@ -353,22 +359,19 @@ export function toGraphQL(
 					});
 					else types.push(type as ts.Expression);
 				}
-				// Create fields
-				let typesArr: ts.Expression = f.createArrayLiteralExpression(types, pretty);
-				if (circleTypes.length) {
-					let v = f.createUniqueName(`${entity.escapedName}_types`);
-					graphqlDeclarations.push(
-						f.createVariableDeclaration(
-							v, undefined, undefined, typesArr
-						)
-					);
-					typesArr = v;
-					// Add to circle queue
-					for (let i = 0, len = circleTypes.length; i < len; ++i) {
-						let item = circleTypes[i] as any as CircleQueueItemUnion;
-						item.varId = v;
-						circlesQueue.push(item);
-					}
+				// Create types list
+				let typesArr: ts.Identifier = f.createUniqueName(`${entity.escapedName}_types`);
+				graphqlDeclarations.push(
+					f.createVariableDeclaration(
+						typesArr, undefined, undefined,
+						f.createArrayLiteralExpression(types, pretty)
+					)
+				);
+				// Add circles
+				for (let i = 0, len = circleTypes.length; i < len; ++i) {
+					let item = circleTypes[i] as any as CircleQueueItemUnion;
+					item.varId = typesArr;
+					circlesQueue.push(item);
 				}
 				// create union
 				let entityConf: { [k in keyof GraphQLUnionTypeConfig<any, any>]: any } = {
@@ -402,6 +405,8 @@ export function toGraphQL(
 						])
 					)
 				);
+				// Add var
+				mapEntityVar.set(entity.name, vName);
 				break;
 			}
 			case Kind.LIST: {
@@ -449,6 +454,8 @@ export function toGraphQL(
 						])
 					)
 				);
+				// Add var
+				mapEntityVar.set(entity.name, varName);
 				break;
 			}
 			case Kind.SCALAR: {
@@ -471,6 +478,8 @@ export function toGraphQL(
 						)
 					)
 				);
+				// Add var
+				mapEntityVar.set(entity.name, varName);
 				break;
 			}
 			case Kind.BASIC_SCALAR: {
@@ -489,6 +498,8 @@ export function toGraphQL(
 						throw _never;
 					}
 				}
+				// Add entity var
+				mapEntityVar.set(entity.name, varId as ts.Identifier);
 				break;
 			}
 			default: {

@@ -1,3 +1,4 @@
+import { TargetExtension } from '@src/compile';
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 
@@ -13,7 +14,8 @@ export function toDataModel(
 	nodeFactory: ts.NodeFactory,
 	srcFile: ts.SourceFile,
 	data: ReturnType<typeof format>,
-	pretty: boolean
+	pretty: boolean,
+	targetExtension: TargetExtension | undefined
 ): ToDataReturn {
 	//TODO generate data Model
 	throw "Function '::toDataModel' is not implemented.";
