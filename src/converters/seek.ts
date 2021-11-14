@@ -6,8 +6,8 @@ export function seek<T, TData>(
 	 * @return  undefined	- No child or already created
 	 * @return  false	- Circulation: Same parent is referenced
 	 */
-	goDown: (node: T, parentNode: T | undefined) => T[] | undefined,
-	goUp: (node: T, parentNode: T | undefined, childrenData: TData[]) => TData
+	goDown: (node: T, isInput: boolean, parentNode: T | undefined) => T[] | { nodes: T[], isInput: boolean } | undefined,
+	goUp: (node: T, isInput: boolean, parentNode: T | undefined, childrenData: TData[]) => TData
 ): TData[] {
 	const rootChildrenData: TData[] = [];
 	const queue: QueueSchema<T, TData>[] = [
@@ -25,11 +25,13 @@ export function seek<T, TData>(
 			childrenData: rootChildrenData
 		}, {
 			node: rootNodes[i],
+			isInput: false,
 			parentNode: undefined,
 			state: NodeVisitState.GO_UP,
 			childrenData: nodeData
 		}, {
 			node: rootNodes[i],
+			isInput: false,
 			parentNode: undefined,
 			state: NodeVisitState.GO_DOWN,
 			childrenData: nodeData
@@ -39,33 +41,39 @@ export function seek<T, TData>(
 	const errors: string[] = []
 	var result: TData[];
 	var childReturnedData: TData;
+	const _isArray = Array.isArray;
 	rootLoop: while (true) {
 		try {
 			const item = queue.pop()!;
 			const { childrenData, state } = item;
 			switch (state) {
 				case NodeVisitState.GO_DOWN: {
-					let { node, parentNode } = item;
-					let childNodes = goDown(node, parentNode);
-					if (childNodes != null) {
-						//* Go through children
-						for (let i = 0, len = childNodes.length; i < len; ++i) {
-							let childData: TData[] = [];
-							queue.push({
-								state: NodeVisitState.COLLECT_DATA,
-								childrenData: childrenData
-							}, {
-								node: childNodes[i],
-								parentNode: node,
-								state: NodeVisitState.GO_UP,
-								childrenData: childData
-							}, {
-								node: childNodes[i],
-								parentNode: node,
-								state: NodeVisitState.GO_DOWN,
-								childrenData: childData
-							});
-						}
+					let { node, parentNode, isInput } = item;
+					let childNodes = goDown(node, isInput, parentNode);
+					if (childNodes == null) break;
+					if (!_isArray(childNodes)) {
+						isInput = childNodes.isInput;
+						childNodes = childNodes.nodes;
+					}
+					//* Go through children
+					for (let i = 0, len = childNodes.length; i < len; ++i) {
+						let childData: TData[] = [];
+						queue.push({
+							state: NodeVisitState.COLLECT_DATA,
+							childrenData: childrenData
+						}, {
+							node: childNodes[i],
+							isInput,
+							parentNode: node,
+							state: NodeVisitState.GO_UP,
+							childrenData: childData
+						}, {
+							node: childNodes[i],
+							isInput,
+							parentNode: node,
+							state: NodeVisitState.GO_DOWN,
+							childrenData: childData
+						});
 					}
 					break;
 				}
@@ -75,8 +83,8 @@ export function seek<T, TData>(
 					break;
 				}
 				case NodeVisitState.GO_UP: {
-					let { node, parentNode } = item;
-					childReturnedData = goUp(node, parentNode, childrenData);
+					let { node, parentNode, isInput } = item;
+					childReturnedData = goUp(node, isInput, parentNode, childrenData);
 					break;
 				}
 				case NodeVisitState.ROOT_NODE: {
@@ -110,6 +118,8 @@ type QueueSchema<T, TData> = QueueSchemaSeek<T, TData> | QueueSchemaCollect<TDat
 interface QueueSchemaSeek<T, TData> {
 	/** Current node */
 	node: T,
+	/** Is input */
+	isInput: boolean
 	/** Parent node */
 	parentNode: T | undefined
 	/** Current visit state */

@@ -4,7 +4,7 @@ import { ToDataReturn } from './to-data-model';
 import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion } from '@src/parser/formatted-model';
 import { FieldType, Kind, MethodDescriptor, Reference, List, Param, EnumMember, BasicScalar } from '../parser/model';
 import { relative, dirname } from 'path';
-import { GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
+import { GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
 import { TargetExtension } from '@src/compile';
 
@@ -22,7 +22,7 @@ export function toGraphQL(
 	pretty: boolean,
 	targetExtension: TargetExtension | undefined
 ): ToDataReturn {
-	type SeekNode = FormattedOutputNode | FieldType | FormattedEnumMember | formattedOutputField;
+	type SeekNode = FormattedOutputNode | FormattedInputNode | FieldType | FormattedEnumMember | formattedOutputField | formattedInputField | Param;
 	/** srcFile path */
 	const srcFilePath = srcFile.fileName;
 	/** Validation schema declarations by the API */
@@ -56,7 +56,7 @@ export function toGraphQL(
 	/** Circles queue */
 	const circlesQueue: CircleQueueItem[] = [];
 	/** Go through nodes */
-	const seekCircle: Set<FormattedOutputNode> = new Set();
+	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
 
 	//* Imports
@@ -219,7 +219,7 @@ export function toGraphQL(
 	}
 
 	/** Seek down */
-	function _seekOutputDown(node: SeekNode, parentNode: SeekNode | undefined): SeekNode[] | undefined {
+	function _seekOutputDown(node: SeekNode, isInput: boolean, parentNode: SeekNode | undefined): SeekNode[] | { nodes: SeekNode[], isInput: boolean } | undefined {
 		switch (node.kind) {
 			case Kind.FORMATTED_OUTPUT_OBJECT: {
 				// Add entity to circle check
@@ -231,8 +231,25 @@ export function toGraphQL(
 				}
 				return result;
 			}
+			case Kind.FORMATTED_INPUT_OBJECT: {
+				// Add entity to circle check
+				seekCircle.add(node);
+				// List fields
+				let result: formattedInputField[] = [];
+				for (let i = 0, fields = node.fields, len = fields.length; i < len; ++i) {
+					result.push(fields[i]);
+				}
+				return result;
+			}
 			case Kind.OUTPUT_FIELD: {
-				return [node.type];
+				return node.param == null ? [node.type] : [node.type, node.param];
+			}
+			case Kind.INPUT_FIELD: {
+				if (node.type == null) console.log('***NULL>>', node);
+				return node.type == null ? undefined : [node.type];
+			}
+			case Kind.PARAM: {
+				return node.type == null ? undefined : { isInput: true, nodes: [node.type] };
 			}
 			case Kind.UNION: {
 				// Add entity to circle check
@@ -254,9 +271,10 @@ export function toGraphQL(
 				return [node.type];
 			case Kind.REF: {
 				let entityName = node.name;
-				if (mapEntityVar.has(entityName)) return undefined;
-				let entity = rootOutput.get(entityName);
+				let entity = isInput ? rootInput.get(entityName) : rootOutput.get(entityName);
 				if (entity == null) throw `Missing entity "${entityName}" referenced at ${node.fileName}`;
+				let entityEscapedName = entity.escapedName;
+				if (mapEntityVar.has(entityEscapedName)) return undefined;
 				if (seekCircle.has(entity)) return undefined; // Circular
 				return [entity];
 			}
@@ -275,7 +293,7 @@ export function toGraphQL(
 	 * Returns each time the identifier to the var of this node and if has circle from reference
 	 * @return {node: ts.Node, hasCircle:boolean}
 	 */
-	function _seekOutputUp(entity: SeekNode, parentNode: SeekNode | undefined, childrenData: SeekOutputData[]): SeekOutputData {
+	function _seekOutputUp(entity: SeekNode, isInput: boolean, parentNode: SeekNode | undefined, childrenData: SeekOutputData[]): SeekOutputData {
 		var varId: SeekOutputData;
 		switch (entity.kind) {
 			case Kind.FORMATTED_OUTPUT_OBJECT: {
@@ -322,10 +340,11 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.name, vName);
+				mapEntityVar.set(entity.escapedName, vName);
 				break;
 			}
 			case Kind.OUTPUT_FIELD: {
+				//* Type
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
@@ -339,8 +358,85 @@ export function toGraphQL(
 					if (entity.method) {
 						let methodVar = _import(entity.method);
 						fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, entity.method), entity.param);
+						let paramId = childrenData[0] as ts.Expression | undefined; // "undefined" means has no param
+						if (paramId != null) fieldConf.args = paramId;
 					} else if (entity.alias) {
 						fieldConf.resolve = _resolveOutputAlias(entity.name);
+					}
+					varId = f.createPropertyAssignment(entity.alias ?? entity.name, _serializeObject(fieldConf));
+				}
+				//* Param
+				// TODO resolve param
+				break;
+			}
+			case Kind.FORMATTED_INPUT_OBJECT: {
+				// Remove entity from circle check
+				seekCircle.delete(entity);
+				// Check for circles
+				const fields: ts.PropertyAssignment[] = [];
+				const circleFields: formattedInputField[] = []
+				for (let i = 0, arr = entity.fields, len = arr.length; i < len; ++i) {
+					let field = childrenData[i] as ts.PropertyAssignment;
+					if (field == null) circleFields.push(arr[i]);
+					else fields.push(field);
+				}
+				// Create fields
+				let objFields: ts.Expression = f.createObjectLiteralExpression(fields, pretty);
+				if (circleFields.length) {
+					let fieldsVar = f.createUniqueName(`${entity.escapedName}_fields`);
+					graphqlDeclarations.push(
+						f.createVariableDeclaration(
+							fieldsVar, undefined, undefined, objFields
+						)
+					);
+					objFields = fieldsVar;
+					// Add to circle queue
+					for (let i = 0, len = circleFields.length; i < len; ++i) {
+						circlesQueue.push({
+							node: entity, field: circleFields[i], varId: fieldsVar
+						});
+					}
+				}
+				// Create object
+				let entityConf: { [k in keyof GraphQLInputObjectTypeConfig]: any } = {
+					name: entity.escapedName,
+					fields: objFields
+				};
+				if (entity.jsDoc) entityConf.description = entity.jsDoc;
+				let vName = varId = f.createUniqueName(entity.escapedName);
+				graphqlDeclarations.push(
+					f.createVariableDeclaration(
+						vName, undefined, undefined,
+						f.createNewExpression(GraphQLObjectType, undefined, [
+							_serializeObject(entityConf)
+						])
+					)
+				);
+				// Add var
+				mapEntityVar.set(entity.escapedName, vName);
+				break;
+			}
+			case Kind.PARAM: {
+				varId = childrenData[0]; // "undefined" means has no param
+				break;
+			}
+			case Kind.INPUT_FIELD: {
+				//* Type
+				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
+				if (varId != null) {
+					// Type
+					if (entity.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+					let fieldConf: { [k in keyof GraphQLInputFieldConfig]: any } = {
+						type: varId
+					};
+					// Other info
+					if (entity.defaultValue) fieldConf.defaultValue = entity.defaultValue;
+					if (entity.deprecated) fieldConf.deprecationReason = entity.deprecated;
+					if (entity.jsDoc) fieldConf.description = entity.jsDoc;
+					if (entity.method) {
+						// TODO input validator, maybe not here :D
+					} else if (entity.alias) {
+						// TODO input alias, maybe not here :D
 					}
 					varId = f.createPropertyAssignment(entity.alias ?? entity.name, _serializeObject(fieldConf));
 				}
@@ -406,7 +502,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.name, vName);
+				mapEntityVar.set(entity.escapedName, vName);
 				break;
 			}
 			case Kind.LIST: {
@@ -455,7 +551,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.name, varName);
+				mapEntityVar.set(entity.escapedName, varName);
 				break;
 			}
 			case Kind.SCALAR: {
@@ -479,7 +575,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.name, varName);
+				mapEntityVar.set(entity.escapedName, varName);
 				break;
 			}
 			case Kind.BASIC_SCALAR: {
@@ -499,7 +595,7 @@ export function toGraphQL(
 					}
 				}
 				// Add entity var
-				mapEntityVar.set(entity.name, varId as ts.Identifier);
+				mapEntityVar.set(entity.escapedName, varId as ts.Identifier);
 				break;
 			}
 			default: {
@@ -620,9 +716,9 @@ function _relative(from: string, to: string) {
 type CircleQueueItem = CircleQueueItemObj | CircleQueueItemUnion;
 interface CircleQueueItemObj {
 	/** Node containing circle */
-	node: FormattedOutputNode,
+	node: FormattedOutputNode | FormattedInputNode,
 	/** Field of circle */
-	field: formattedOutputField,
+	field: formattedOutputField | formattedInputField,
 	/** Fields var */
 	varId: ts.Identifier
 }

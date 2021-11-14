@@ -520,10 +520,14 @@ export function parse(files: readonly string[], program: ts.Program) {
 									let property = properties[j];
 									let propertyTypeName = property.name;
 									if (!foundSymbols.has(propertyTypeName)) {
-										foundSymbols.add(propertyTypeName);
 										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration;
 										if (propertyDeclaration == null) continue;
+										if (propertyDeclaration.getSourceFile().isDeclarationFile) {
+											console.log('--- is declaration file:', propertyTypeName)
+											continue;
+										}
 										// Resolve
+										foundSymbols.add(propertyTypeName);
 										visitor.push(
 											propertyDeclaration, typeChecker.getTypeAtLocation(propertyDeclaration),
 											entity, srcFile, isInput, propertyTypeName, isResolversImplementation,
@@ -561,7 +565,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 					let refEnt: Reference = {
 						kind: Kind.REF,
 						fileName: fileName,
-						name: refName
+						name: refName,
+						oName: _getNodeName(node, srcFile)
 					};
 					if (pDesc.kind === Kind.UNION) pDesc.types.push(refEnt);
 					else pDesc.type = refEnt;
@@ -586,6 +591,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 					pDesc.type = {
 						kind: Kind.REF,
 						name: nodeName,
+						oName: nodeName,
 						fileName: srcFile.fileName
 					};
 					break;
@@ -696,6 +702,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let typeRef: Reference = {
 							kind: Kind.REF,
 							name: entityName,
+							oName: entityName,
 							fileName: srcFile.fileName
 						};
 						LITERAL_OBJECTS.push({ node: entity, ref: typeRef, isInput });
@@ -940,6 +947,31 @@ export function parse(files: readonly string[], program: ts.Program) {
 		item.ref.name = itemName;
 		(targetMap as Map<string, InputObject | OutputObject>).set(itemName, node);
 	}
+	//* Make Entities Escaped Names Unique
+	let nmSet = new Set<string>();
+	OUTPUT_ENTITIES.forEach((entity) => {
+		let escName = entity.escapedName;
+		if (escName == null) return;
+		let i = 0, escName2 = escName;
+		while (nmSet.has(escName)) {
+			escName = `${escName2}_${++i}`;
+		}
+		entity.escapedName = escName;
+		nmSet.add(escName);
+	});
+	INPUT_ENTITIES.forEach((entity) => {
+		let escName = entity.escapedName;
+		if (escName == null) return;
+		if (nmSet.has(escName)) {
+			escName += 'Input';
+			let i = 0, escName2 = escName;
+			while (nmSet.has(escName)) {
+				escName = `${escName2}_${++i}`;
+			}
+			entity.escapedName = escName;
+		}
+		nmSet.add(escName);
+	});
 	//* Return
 	return {
 		input: INPUT_ENTITIES,
