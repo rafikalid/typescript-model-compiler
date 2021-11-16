@@ -401,6 +401,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
 							) ?? propertyTypeNode;
 						}
+						console.log('field>>', entityName, ':', _getNodeName(propertyTypeNode, srcFile), '<>', _getNodeName(propertyNode.type, srcFile))
 						visitor.push(
 							propertyTypeNode, propertyType,
 							field, srcFile, isInput, entityName, isResolversImplementation
@@ -522,10 +523,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 									if (!foundSymbols.has(propertyTypeName)) {
 										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration;
 										if (propertyDeclaration == null) continue;
-										if (propertyDeclaration.getSourceFile().isDeclarationFile) {
-											console.log('--- is declaration file:', propertyTypeName)
+										if (propertyDeclaration.getSourceFile().isDeclarationFile)
 											continue;
-										}
 										// Resolve
 										foundSymbols.add(propertyTypeName);
 										visitor.push(
