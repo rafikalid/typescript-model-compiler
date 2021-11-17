@@ -98,7 +98,7 @@ export function seek<T, TData>(
 			else throw error;
 		}
 	}
-	if (errors.length != 0) throw '•' + errors.join("\n•");
+	if (errors.length != 0) throw new Error("Errors:\n• " + errors.join("\n• "));
 	return result;
 }
 

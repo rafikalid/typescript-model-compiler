@@ -245,7 +245,6 @@ export function toGraphQL(
 				return node.param == null ? [node.type] : [node.type, node.param];
 			}
 			case Kind.INPUT_FIELD: {
-				if (node.type == null) console.log('***NULL>>', node);
 				return node.type == null ? undefined : [node.type];
 			}
 			case Kind.PARAM: {
@@ -271,8 +270,8 @@ export function toGraphQL(
 				return [node.type];
 			case Kind.REF: {
 				let entityName = node.name;
-				let entity = isInput ? rootInput.get(entityName) : rootOutput.get(entityName);
-				if (entity == null) throw `Missing entity "${entityName}" referenced at ${node.fileName}`;
+				let entity = isInput === true ? rootInput.get(entityName) : rootOutput.get(entityName);
+				if (entity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${entityName}" referenced at ${node.fileName}`;
 				let entityEscapedName = entity.escapedName;
 				if (mapEntityVar.has(entityEscapedName)) return undefined;
 				if (seekCircle.has(entity)) return undefined; // Circular
@@ -470,6 +469,7 @@ export function toGraphQL(
 					circlesQueue.push(item);
 				}
 				// create union
+				if (entity.parser == null) throw `Missing resolver for UNION "${entity.name}"`;
 				let entityConf: { [k in keyof GraphQLUnionTypeConfig<any, any>]: any } = {
 					name: entity.escapedName,
 					types: typesArr,
@@ -478,7 +478,7 @@ export function toGraphQL(
 							typesArr,
 							f.createCallExpression(
 								f.createPropertyAccessExpression(
-									_import(entity.parser!),
+									_import(entity.parser),
 									f.createIdentifier('resolveType')
 								),
 								undefined,

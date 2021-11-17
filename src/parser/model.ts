@@ -236,8 +236,6 @@ export interface Reference {
 	kind: Kind.REF;
 	/** Reference name */
 	name: string;
-	/** Used reference name in field emplacement */
-	oName: string;
 	/** source file name. Used for debugger */
 	fileName: string;
 	// /** Params in case of generic type */

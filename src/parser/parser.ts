@@ -401,7 +401,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 								ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
 							) ?? propertyTypeNode;
 						}
-						console.log('field>>', entityName, ':', _getNodeName(propertyTypeNode, srcFile), '<>', _getNodeName(propertyNode.type, srcFile))
 						visitor.push(
 							propertyTypeNode, propertyType,
 							field, srcFile, isInput, entityName, isResolversImplementation
@@ -426,13 +425,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 							// Parse param type
 							//TODO resolve parameter generic type
 							if (paramNode.type != null)
-								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pRef, srcFile, isInput, paramName);
+								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pRef, srcFile, true, paramName);
 							pDesc.param = pRef;
 							break;
 						case Kind.INPUT_FIELD:
 							// Parse param type
 							if (paramNode.type != null)
-								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pDesc, srcFile, isInput, paramName);
+								visitor.push(paramNode.type, typeChecker.getTypeAtLocation(paramNode.type), pDesc, srcFile, true, paramName);
 							break;
 						default:
 							throw `Unexpected param parent. Got "${Kind[pDesc.kind]}" at ${errorFile(srcFile, node)}`;
@@ -457,7 +456,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 					let typeNode = _cleanReference(node as ts.TypeNode)
 					if (typeNode == null) throw `Empty Type Declaration: "${_getNodeName(node, srcFile)}" at ${errorFile(srcFile, node)}`;
 					let refName = _getNodeName(typeNode, srcFile);
-					let targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+					let targetMap = isInput === true ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 					let entity = targetMap.get(refName);
 					if (entity == null) {
 						//* Check if it's enum
@@ -511,11 +510,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 							if (
 								(
 									(type as ts.TypeReference).typeArguments != null ||
-									(type as any as { typeParameter: any }).typeParameter != null
+									(type as ts.TypeReference).aliasTypeArguments != null
+									// (type as any as { typeParameter: any }).typeParameter != null
 								) && !targetMap.has(refName)
 							) {
 								// Resolve generic type
-								let entity = _upObjectEntity(isInput!, refName, fileName, deprecated, undefined);
+								let entity = _upObjectEntity(isInput, refName, fileName, deprecated, undefined);
 								const foundSymbols: Set<string> = new Set();
 								for (let j = 0, properties = type.getProperties(), jLen = properties.length; j < jLen; ++j) {
 									let property = properties[j];
@@ -564,8 +564,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 					let refEnt: Reference = {
 						kind: Kind.REF,
 						fileName: fileName,
-						name: refName,
-						oName: _getNodeName(node, srcFile)
+						name: refName
 					};
 					if (pDesc.kind === Kind.UNION) pDesc.types.push(refEnt);
 					else pDesc.type = refEnt;
@@ -590,7 +589,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 					pDesc.type = {
 						kind: Kind.REF,
 						name: nodeName,
-						oName: nodeName,
 						fileName: srcFile.fileName
 					};
 					break;
@@ -701,7 +699,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let typeRef: Reference = {
 							kind: Kind.REF,
 							name: entityName,
-							oName: entityName,
 							fileName: srcFile.fileName
 						};
 						LITERAL_OBJECTS.push({ node: entity, ref: typeRef, isInput });
@@ -1047,7 +1044,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	}
 
 	/** Create Object entity if not exists */
-	function _upObjectEntity(isInput: boolean, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject | OutputObject {
+	function _upObjectEntity(isInput: boolean | undefined, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject | OutputObject {
 		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 		let entity = targetMap.get(name) as InputObject | OutputObject;
 		if (entity == null) {
