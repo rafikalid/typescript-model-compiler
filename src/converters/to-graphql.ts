@@ -59,6 +59,49 @@ export function toGraphQL(
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
 
+	//* Add circle fields
+	for (let i = 0, len = circlesQueue.length; i < len; ++i) {
+		let item = circlesQueue[i];
+		switch (item.type) {
+			case Kind.OUTPUT_FIELD: {
+				let { field } = item;
+				// Type
+				let fieldConf: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
+					type: ResolveCircleFieldType(field)
+				};
+				// Other info
+				if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
+				if (field.jsDoc) fieldConf.description = field.jsDoc;
+				if (field.method) {
+					let methodVar = _import(field.method);
+					fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, field.method), field.param);
+					if (field.param != null && field.param.type != null) {
+						let paramType = field.param.type;
+						let pEntityName = paramType.name;
+						let paramEntity = rootInput.get(pEntityName);
+						if (paramEntity == null) throw new Error(`Missing entity "${pEntityName}" for param "${item.node.name}.${field.name}" at ${paramType.fileName}`);
+						let paramVar = mapEntityVar.get(paramEntity.escapedName);
+						if (paramVar == null) throw `Missing definition for entity "${pEntityName}" as param of "${item.node.name}.${field.name}" at ${paramType.fileName}`;
+						fieldConf.args = paramVar;
+					}
+				} else if (field.alias) {
+					fieldConf.resolve = _resolveOutputAlias(field.name);
+				}
+				let varId = f.createPropertyAssignment(field.alias ?? field.name, _serializeObject(fieldConf));
+				break;
+			}
+			case Kind.INPUT_FIELD: {
+				break;
+			}
+			case Kind.UNION: {
+				break;
+			}
+			default: {
+				let c: never = item;
+			}
+		}
+	}
+
 	//* Imports
 	const imports = _genImports(); // Generate imports from src
 	imports.push(
@@ -319,7 +362,7 @@ export function toGraphQL(
 					// Add to circle queue
 					for (let i = 0, len = circleFields.length; i < len; ++i) {
 						circlesQueue.push({
-							node: entity, field: circleFields[i], varId: fieldsVar
+							type: Kind.OUTPUT_FIELD, node: entity, field: circleFields[i], varId: fieldsVar
 						});
 					}
 				}
@@ -357,7 +400,7 @@ export function toGraphQL(
 					if (entity.method) {
 						let methodVar = _import(entity.method);
 						fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, entity.method), entity.param);
-						let paramId = childrenData[0] as ts.Expression | undefined; // "undefined" means has no param
+						let paramId = childrenData[1] as ts.Expression | undefined; // "undefined" means has no param
 						if (paramId != null) fieldConf.args = paramId;
 					} else if (entity.alias) {
 						fieldConf.resolve = _resolveOutputAlias(entity.name);
@@ -392,7 +435,7 @@ export function toGraphQL(
 					// Add to circle queue
 					for (let i = 0, len = circleFields.length; i < len; ++i) {
 						circlesQueue.push({
-							node: entity, field: circleFields[i], varId: fieldsVar
+							type: Kind.INPUT_FIELD, node: entity, field: circleFields[i], varId: fieldsVar
 						});
 					}
 				}
@@ -446,11 +489,11 @@ export function toGraphQL(
 				seekCircle.delete(entity);
 				// Check for circles
 				const types: ts.Expression[] = [];
-				const circleTypes: (Omit<CircleQueueItemUnion, 'varId'> & { varId: undefined })[] = []
+				const circleTypes: (Omit<CircleQueueUnion, 'varId'> & { varId: undefined })[] = []
 				for (let i = 0, arr = entity.types, len = arr.length; i < len; ++i) {
 					let type = childrenData[i];
 					if (type == null) circleTypes.push({
-						union: entity, type: arr[i], index: i, varId: undefined
+						type: Kind.UNION, union: entity, ref: arr[i], index: i, varId: undefined
 					});
 					else types.push(type as ts.Expression);
 				}
@@ -464,7 +507,7 @@ export function toGraphQL(
 				);
 				// Add circles
 				for (let i = 0, len = circleTypes.length; i < len; ++i) {
-					let item = circleTypes[i] as any as CircleQueueItemUnion;
+					let item = circleTypes[i] as any as CircleQueueUnion;
 					item.varId = typesArr;
 					circlesQueue.push(item);
 				}
@@ -697,6 +740,29 @@ export function toGraphQL(
 			undefined, f.createBlock(body, pretty)
 		);
 	}
+	/** Resolve field type */
+	function ResolveCircleFieldType(field: formattedInputField | formattedOutputField): ts.Expression {
+		let tp = field.type;
+		let q: List[] = [];
+		let isInput = field.kind === Kind.INPUT_FIELD;
+		while (tp.kind != Kind.REF) {
+			q.push(tp);
+			tp = tp.type;
+		}
+		let entity = isInput ? rootInput.get(tp.name) : rootOutput.get(tp.name);
+		if (entity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${tp.name}" referenced at ${tp.fileName}`;
+		let varId: ts.Expression | undefined = mapEntityVar.get(entity.escapedName);
+		if (varId == null) throw `Missing definition for entity "${entity.name}"`;
+		// wrap with list and requires
+		for (let i = 0, len = q.length; i < len; ++i) {
+			let l = q[i];
+			if (l.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+			varId = f.createNewExpression(GraphQLList, undefined, [varId]);
+		}
+		// If field required
+		if (field.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+		return varId;
+	}
 }
 
 /** Seek data */
@@ -713,21 +779,32 @@ function _relative(from: string, to: string) {
 }
 
 /** Circle queue item */
-type CircleQueueItem = CircleQueueItemObj | CircleQueueItemUnion;
-interface CircleQueueItemObj {
+type CircleQueueItem = CircleQueueInputField | CircleQueueOutputField | CircleQueueUnion;
+interface CircleQueueInputField {
+	type: Kind.INPUT_FIELD
 	/** Node containing circle */
-	node: FormattedOutputNode | FormattedInputNode,
+	node: FormattedInputNode,
 	/** Field of circle */
-	field: formattedOutputField | formattedInputField,
+	field: formattedInputField,
+	/** Fields var */
+	varId: ts.Identifier
+}
+interface CircleQueueOutputField {
+	type: Kind.OUTPUT_FIELD
+	/** Node containing circle */
+	node: FormattedOutputNode,
+	/** Field of circle */
+	field: formattedOutputField,
 	/** Fields var */
 	varId: ts.Identifier
 }
 
-interface CircleQueueItemUnion {
+interface CircleQueueUnion {
+	type: Kind.UNION,
 	/** Union entity */
 	union: FormattedUnion,
 	/** Target type */
-	type: Reference
+	ref: Reference
 	/** Index */
 	index: number
 	/** types array var */
