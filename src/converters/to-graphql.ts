@@ -88,6 +88,7 @@ export function toGraphQL(
 					fieldConf.resolve = _resolveOutputAlias(field.name);
 				}
 				let varId = f.createPropertyAssignment(field.alias ?? field.name, _serializeObject(fieldConf));
+				// TODO ---------------------------- add var 
 				break;
 			}
 			case Kind.INPUT_FIELD: {
