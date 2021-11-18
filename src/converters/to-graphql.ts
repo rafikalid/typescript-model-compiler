@@ -43,6 +43,8 @@ export function toGraphQL(
 	const srcImports: Map<string, srcImportEntry> = new Map();
 	/** Create class objects */
 	const importCreateObjects: ts.VariableDeclaration[] = [];
+	/** Reduce identifiers (example: non null strings) */
+	const reduceRequiredIds = new Map<ts.Expression, ts.Expression>();
 	//* Go through Model
 	const queue: SeekNode[] = [];
 	/** Is node visited for first time (as 0) or second time (as 1) */
@@ -58,6 +60,27 @@ export function toGraphQL(
 	/** Go through nodes */
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
+
+	//* Imports
+	const imports = _genImports(); // Generate imports from src
+	imports.push(
+		_genImportDeclaration('graphql', gqlImports), // Graphql imports
+		_genImportDeclaration('tt-model', ttModelImports) // tt-model imports
+	);
+	//* Create block statement
+	const statementsBlock: ts.Statement[] = [];
+	if (importCreateObjects.length)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(importCreateObjects)
+		));
+	if (inputDeclarations.length > 0)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(inputDeclarations)
+		));
+	if (graphqlDeclarations.length > 0)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(graphqlDeclarations)
+		));
 
 	//* Add circle fields
 	for (let i = 0, len = circlesQueue.length; i < len; ++i) {
@@ -87,8 +110,13 @@ export function toGraphQL(
 				} else if (field.alias) {
 					fieldConf.resolve = _resolveOutputAlias(field.name);
 				}
-				let varId = f.createPropertyAssignment(field.alias ?? field.name, _serializeObject(fieldConf));
-				// TODO ---------------------------- add var 
+				statementsBlock.push(
+					f.createExpressionStatement(f.createBinaryExpression(
+						f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
+						f.createToken(ts.SyntaxKind.EqualsToken),
+						_serializeObject(fieldConf)
+					))
+				);
 				break;
 			}
 			case Kind.INPUT_FIELD: {
@@ -102,27 +130,6 @@ export function toGraphQL(
 			}
 		}
 	}
-
-	//* Imports
-	const imports = _genImports(); // Generate imports from src
-	imports.push(
-		_genImportDeclaration('graphql', gqlImports), // Graphql imports
-		_genImportDeclaration('tt-model', ttModelImports) // tt-model imports
-	);
-	//* Create block statement
-	const statementsBlock: ts.Statement[] = [];
-	if (importCreateObjects.length)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(importCreateObjects)
-		));
-	if (inputDeclarations.length > 0)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(inputDeclarations)
-		));
-	if (graphqlDeclarations.length > 0)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(graphqlDeclarations)
-		));
 	//* Add return statement
 	const gqlSchema: { [k in keyof GraphQLSchemaConfig]: ts.Identifier } = {};
 	// Query
@@ -391,7 +398,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+					if (entity.required) varId = genRequiredExpr(varId, 'expr');
 					let fieldConf: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
 						type: varId
 					};
@@ -408,8 +415,6 @@ export function toGraphQL(
 					}
 					varId = f.createPropertyAssignment(entity.alias ?? entity.name, _serializeObject(fieldConf));
 				}
-				//* Param
-				// TODO resolve param
 				break;
 			}
 			case Kind.FORMATTED_INPUT_OBJECT: {
@@ -468,7 +473,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+					if (entity.required) varId = genRequiredExpr(varId, 'expr');
 					let fieldConf: { [k in keyof GraphQLInputFieldConfig]: any } = {
 						type: varId
 					};
@@ -552,15 +557,17 @@ export function toGraphQL(
 			case Kind.LIST: {
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
-					if (entity.required) {
-						varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
-					}
+					if (entity.required) varId = genRequiredExpr(varId, 'expr');
 					varId = f.createNewExpression(GraphQLList, undefined, [varId]);
 				}
 				break;
 			}
 			case Kind.REF: {
 				varId = childrenData[0]; // "undefined" means has circular to parents
+				if (varId == null) {
+					let refEntity = isInput === true ? rootInput.get(entity.name) : rootOutput.get(entity.name);
+					varId = mapEntityVar.get(refEntity!.escapedName);
+				}
 				break;
 			}
 			case Kind.ENUM_MEMBER: {
@@ -762,6 +769,24 @@ export function toGraphQL(
 		}
 		// If field required
 		if (field.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+		return varId;
+	}
+	/** Get required expression */
+	function genRequiredExpr(varId: ts.Expression, exprName: string) {
+		let id = reduceRequiredIds.get(varId);
+		if (id == null) {
+			let varName = f.createUniqueName(exprName);
+			graphqlDeclarations.push(
+				f.createVariableDeclaration(
+					varName, undefined, undefined,
+					f.createNewExpression(GraphQLNonNull, undefined, [varId])
+				)
+			);
+			reduceRequiredIds.set(varId, varName);
+			varId = varName;
+		} else {
+			varId = id;
+		}
 		return varId;
 	}
 }
