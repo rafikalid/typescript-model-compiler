@@ -61,28 +61,8 @@ export function toGraphQL(
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
 
-	//* Imports
-	const imports = _genImports(); // Generate imports from src
-	imports.push(
-		_genImportDeclaration('graphql', gqlImports), // Graphql imports
-		_genImportDeclaration('tt-model', ttModelImports) // tt-model imports
-	);
-	//* Create block statement
-	const statementsBlock: ts.Statement[] = [];
-	if (importCreateObjects.length)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(importCreateObjects)
-		));
-	if (inputDeclarations.length > 0)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(inputDeclarations)
-		));
-	if (graphqlDeclarations.length > 0)
-		statementsBlock.push(f.createVariableStatement(
-			undefined, f.createVariableDeclarationList(graphqlDeclarations)
-		));
-
 	//* Add circle fields
+	const circleStatementsBlock: ts.Statement[] = [];
 	for (let i = 0, len = circlesQueue.length; i < len; ++i) {
 		let item = circlesQueue[i];
 		switch (item.type) {
@@ -110,7 +90,7 @@ export function toGraphQL(
 				} else if (field.alias) {
 					fieldConf.resolve = _resolveOutputAlias(field.name);
 				}
-				statementsBlock.push(
+				circleStatementsBlock.push(
 					f.createExpressionStatement(f.createBinaryExpression(
 						f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
 						f.createToken(ts.SyntaxKind.EqualsToken),
@@ -120,9 +100,37 @@ export function toGraphQL(
 				break;
 			}
 			case Kind.INPUT_FIELD: {
+				let { field } = item;
+				// Type
+				let fieldConf: { [k in keyof GraphQLInputFieldConfig]: any } = {
+					type: ResolveCircleFieldType(field)
+				};
+				// Other info
+				if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
+				if (field.jsDoc) fieldConf.description = field.jsDoc;
+				circleStatementsBlock.push(
+					f.createExpressionStatement(f.createBinaryExpression(
+						f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
+						f.createToken(ts.SyntaxKind.EqualsToken),
+						_serializeObject(fieldConf)
+					))
+				);
 				break;
 			}
 			case Kind.UNION: {
+				let { varId, union, isInput } = item;
+				// Check for circles
+				const types: ts.Expression[] = [];
+				for (let i = 0, refs = union.types, len = refs.length; i < len; ++i) {
+					let ref = refs[i];
+					let refEntity = isInput ? rootOutput.get(ref.name) : rootOutput.get(ref.name);
+					types.push(mapEntityVar.get(refEntity!.escapedName)!);
+				}
+				circleStatementsBlock.push(
+					f.createExpressionStatement(f.createCallExpression(
+						f.createPropertyAccessExpression(varId, "push"), undefined, types
+					))
+				);
 				break;
 			}
 			default: {
@@ -130,6 +138,30 @@ export function toGraphQL(
 			}
 		}
 	}
+
+	//* Imports
+	const imports = _genImports(); // Generate imports from src
+	imports.push(
+		_genImportDeclaration('graphql', gqlImports), // Graphql imports
+		_genImportDeclaration('tt-model', ttModelImports) // tt-model imports
+	);
+
+	//* Create block statement
+	const statementsBlock: ts.Statement[] = [];
+	if (importCreateObjects.length > 0)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(importCreateObjects)
+		));
+	if (inputDeclarations.length > 0)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(inputDeclarations)
+		));
+	if (graphqlDeclarations.length > 0)
+		statementsBlock.push(f.createVariableStatement(
+			undefined, f.createVariableDeclarationList(graphqlDeclarations)
+		));
+	if (circleStatementsBlock.length) statementsBlock.push(...circleStatementsBlock);
+
 	//* Add return statement
 	const gqlSchema: { [k in keyof GraphQLSchemaConfig]: ts.Identifier } = {};
 	// Query
@@ -220,9 +252,7 @@ export function toGraphQL(
 					// Create var
 					importCreateObjects.push(
 						f.createVariableDeclaration(
-							varName,
-							undefined,
-							undefined,
+							varName, undefined, undefined,
 							f.createNewExpression(isp, undefined, [])
 						)
 					);
@@ -304,12 +334,7 @@ export function toGraphQL(
 			case Kind.UNION: {
 				// Add entity to circle check
 				seekCircle.add(node);
-				// List types
-				let result: Reference[] = [];
-				for (let i = 0, fields = node.types, len = fields.length; i < len; ++i) {
-					result.push(fields[i]);
-				}
-				return result;
+				return node.types;
 			}
 			case Kind.ENUM: {
 				let result: FormattedEnumMember[] = [];
@@ -398,7 +423,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = genRequiredExpr(varId, 'expr');
+					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
 					let fieldConf: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
 						type: varId
 					};
@@ -473,7 +498,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = genRequiredExpr(varId, 'expr');
+					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
 					let fieldConf: { [k in keyof GraphQLInputFieldConfig]: any } = {
 						type: varId
 					};
@@ -493,30 +518,27 @@ export function toGraphQL(
 			case Kind.UNION: {
 				// Remove entity from circle check
 				seekCircle.delete(entity);
-				// Check for circles
-				const types: ts.Expression[] = [];
-				const circleTypes: (Omit<CircleQueueUnion, 'varId'> & { varId: undefined })[] = []
-				for (let i = 0, arr = entity.types, len = arr.length; i < len; ++i) {
-					let type = childrenData[i];
-					if (type == null) circleTypes.push({
-						type: Kind.UNION, union: entity, ref: arr[i], index: i, varId: undefined
-					});
-					else types.push(type as ts.Expression);
+				let typesArr: ts.Identifier = f.createUniqueName(`${entity.escapedName}_types`);
+				let types: ts.Expression[];
+				// Check if has circles
+				console.log('=> childrenData: ', childrenData.length)
+				if (childrenData.some(e => e == null)) {
+					//* Has circles
+					console.log('====> union types undefined')
+					circlesQueue.push({ type: Kind.UNION, union: entity, varId: typesArr, isInput });
+					types = [];
+				} else {
+					//* Has no circle
+					console.log('====> union types OK')
+					types = childrenData as ts.Expression[];
 				}
 				// Create types list
-				let typesArr: ts.Identifier = f.createUniqueName(`${entity.escapedName}_types`);
 				graphqlDeclarations.push(
 					f.createVariableDeclaration(
 						typesArr, undefined, undefined,
 						f.createArrayLiteralExpression(types, pretty)
 					)
 				);
-				// Add circles
-				for (let i = 0, len = circleTypes.length; i < len; ++i) {
-					let item = circleTypes[i] as any as CircleQueueUnion;
-					item.varId = typesArr;
-					circlesQueue.push(item);
-				}
 				// create union
 				if (entity.parser == null) throw `Missing resolver for UNION "${entity.name}"`;
 				let entityConf: { [k in keyof GraphQLUnionTypeConfig<any, any>]: any } = {
@@ -557,7 +579,7 @@ export function toGraphQL(
 			case Kind.LIST: {
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
-					if (entity.required) varId = genRequiredExpr(varId, 'expr');
+					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
 					varId = f.createNewExpression(GraphQLList, undefined, [varId]);
 				}
 				break;
@@ -751,6 +773,7 @@ export function toGraphQL(
 	/** Resolve field type */
 	function ResolveCircleFieldType(field: formattedInputField | formattedOutputField): ts.Expression {
 		let tp = field.type;
+		if (tp == null) throw new Error(`Missing type at ${field.className}.${field.name}`);
 		let q: List[] = [];
 		let isInput = field.kind === Kind.INPUT_FIELD;
 		while (tp.kind != Kind.REF) {
@@ -764,11 +787,11 @@ export function toGraphQL(
 		// wrap with list and requires
 		for (let i = 0, len = q.length; i < len; ++i) {
 			let l = q[i];
-			if (l.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+			if (l.required) varId = genRequiredExpr(varId, 'requiredExpr');
 			varId = f.createNewExpression(GraphQLList, undefined, [varId]);
 		}
 		// If field required
-		if (field.required) varId = f.createNewExpression(GraphQLNonNull, undefined, [varId]);
+		if (field.required) varId = genRequiredExpr(varId, 'requiredExpr');
 		return varId;
 	}
 	/** Get required expression */
@@ -829,10 +852,7 @@ interface CircleQueueUnion {
 	type: Kind.UNION,
 	/** Union entity */
 	union: FormattedUnion,
-	/** Target type */
-	ref: Reference
-	/** Index */
-	index: number
 	/** types array var */
 	varId: ts.Identifier
+	isInput: boolean
 }

@@ -808,10 +808,15 @@ export function parse(files: readonly string[], program: ts.Program) {
 										let typeSymbol = type.symbol;
 										if (typeSymbol == null)
 											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
+										if (!type.isClassOrInterface())
+											throw `Union type "${typeChecker.typeToString(type)}" expected Interface or Class at ${errorFile(srcFile, declaration)}`;
 										let typeNode = typeSymbol.valueDeclaration ?? typeSymbol.declarations?.[0];
 										if (typeNode == null)
 											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
 										visitor.push(typeNode, type, entity, srcFile, undefined, undefined, isResolversImplementation);
+										entity.types.push({
+											kind: Kind.REF, name: typeSymbol.name, fileName
+										});
 									}
 									break;
 								}
