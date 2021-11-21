@@ -22,7 +22,8 @@ export function seek<T, TData>(
 		let nodeData: TData[] = []
 		queue.push({
 			state: NodeVisitState.COLLECT_DATA,
-			childrenData: rootChildrenData
+			childrenData: rootChildrenData,
+			index: 0
 		}, {
 			node: rootNodes[i],
 			isInput: false,
@@ -60,7 +61,8 @@ export function seek<T, TData>(
 						let childData: TData[] = [];
 						queue.push({
 							state: NodeVisitState.COLLECT_DATA,
-							childrenData: childrenData
+							childrenData: childrenData,
+							index: i
 						}, {
 							node: childNodes[i],
 							isInput,
@@ -79,7 +81,8 @@ export function seek<T, TData>(
 				}
 				case NodeVisitState.COLLECT_DATA: {
 					// @ts-ignore
-					childrenData.push(childReturnedData);
+					childrenData[item.index] = childReturnedData;
+					// childrenData.push(childReturnedData);
 					break;
 				}
 				case NodeVisitState.GO_UP: {
@@ -132,7 +135,9 @@ interface QueueSchemaSeek<T, TData> {
 interface QueueSchemaCollect<TData> {
 	state: NodeVisitState.COLLECT_DATA,
 	/** Data from child nodes */
-	childrenData: TData[]
+	childrenData: TData[],
+	/** Node index */
+	index: number
 }
 /** Root node */
 interface QueueRootNode<TData> {

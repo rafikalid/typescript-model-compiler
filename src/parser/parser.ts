@@ -440,6 +440,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 				}
 				case ts.SyntaxKind.LastTypeNode:
 				case ts.SyntaxKind.TypeReference:
+				case ts.SyntaxKind.IntersectionType:
 				case ts.SyntaxKind.UnionType: {
 					if (pDesc == null) continue;
 					if (
@@ -507,7 +508,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 							//* Resolve to a single type
 							let type = refTypes[0];
 							// refName = typeChecker.typeToString(type); // referenced node's name
-							if (
+							let typeNode = typeChecker.typeToTypeNode(type, undefined, undefined);
+							if (typeNode && typeNode.kind === ts.SyntaxKind.ArrayType) {
+								visitor.push(
+									typeNode, type, pDesc, srcFile, isInput, entityName, isResolversImplementation
+								);
+							} else if (
 								(
 									(type as ts.TypeReference).typeArguments != null ||
 									(type as ts.TypeReference).aliasTypeArguments != null
@@ -517,6 +523,32 @@ export function parse(files: readonly string[], program: ts.Program) {
 								// Resolve generic type
 								let entity = _upObjectEntity(isInput, refName, fileName, deprecated, undefined);
 								const foundSymbols: Set<string> = new Set();
+								for (let j = 0, properties = type.getProperties(), jLen = properties.length; j < jLen; ++j) {
+									let property = properties[j];
+									let propertyTypeName = property.name;
+									if (!foundSymbols.has(propertyTypeName)) {
+										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration;
+										if (propertyDeclaration == null) continue;
+										if (propertyDeclaration.getSourceFile().isDeclarationFile)
+											continue;
+										// Resolve
+										foundSymbols.add(propertyTypeName);
+										visitor.push(
+											propertyDeclaration, typeChecker.getTypeAtLocation(propertyDeclaration),
+											entity, srcFile, isInput, propertyTypeName, isResolversImplementation,
+											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration)
+										);
+									}
+								}
+							}
+						}
+						//* Is intersection
+						else if (typeChecker.getNonNullableType(nodeType).isIntersection()) {
+							// Resolve generic type
+							let entity = _upObjectEntity(isInput, refName, fileName, deprecated, undefined);
+							const foundSymbols: Set<string> = new Set();
+							for (let i = 0, len = refTypes.length; i < len; ++i) {
+								let type = refTypes[i];
 								for (let j = 0, properties = type.getProperties(), jLen = properties.length; j < jLen; ++j) {
 									let property = properties[j];
 									let propertyTypeName = property.name;

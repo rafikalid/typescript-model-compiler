@@ -490,6 +490,7 @@ export function toGraphQL(
 				break;
 			}
 			case Kind.PARAM: {
+				// TODO fix this shit it's a param!
 				varId = childrenData[0]; // "undefined" means has no param
 				break;
 			}
