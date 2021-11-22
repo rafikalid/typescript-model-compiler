@@ -11,7 +11,6 @@ const parseYaml = Yaml.parse;
 import strMath from 'string-math';
 import bytes from 'bytes';
 import { DEFAULT_SCALARS } from "tt-model";
-import { escapeEntityName } from "./format";
 
 /**
  * Extract Model from typescript code
@@ -984,26 +983,30 @@ export function parse(files: readonly string[], program: ts.Program) {
 	let nmSet = new Set<string>();
 	OUTPUT_ENTITIES.forEach((entity) => {
 		let escName = entity.escapedName;
-		if (escName == null) return;
-		let i = 0, escName2 = escName;
-		while (nmSet.has(escName)) {
-			escName = `${escName2}_${++i}`;
+		if (escName != null) {
+			if (entity.kind === Kind.OUTPUT_OBJECT && nmSet.has(escName)) {
+				let i = 0, escName2 = escName;
+				while (nmSet.has(escName)) {
+					escName = `${escName2}_${++i}`;
+				}
+				entity.escapedName = escName;
+			}
+			nmSet.add(escName);
 		}
-		entity.escapedName = escName;
-		nmSet.add(escName);
 	});
 	INPUT_ENTITIES.forEach((entity) => {
 		let escName = entity.escapedName;
-		if (escName == null) return;
-		if (nmSet.has(escName)) {
-			escName += 'Input';
-			let i = 0, escName2 = escName;
-			while (nmSet.has(escName)) {
-				escName = `${escName2}_${++i}`;
+		if (escName != null) {
+			if (entity.kind === Kind.INPUT_OBJECT && nmSet.has(escName)) {
+				escName += 'Input';
+				let i = 0, escName2 = escName;
+				while (nmSet.has(escName)) {
+					escName = `${escName2}_${++i}`;
+				}
+				entity.escapedName = escName;
 			}
-			entity.escapedName = escName;
+			nmSet.add(escName);
 		}
-		nmSet.add(escName);
 	});
 	//* Return
 	return {
@@ -1244,4 +1247,9 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 		result.set(name, obj);
 	});
 	return result;
+}
+
+/** Escape entity name */
+export function escapeEntityName(name: string) {
+	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_');
 }

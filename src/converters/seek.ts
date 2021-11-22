@@ -95,6 +95,9 @@ export function seek<T, TData>(
 					result = childrenData;
 					break rootLoop;
 				}
+				default: {
+					let c: never = state;
+				}
 			}
 		} catch (error) {
 			if (typeof error === 'string') errors.push(error);

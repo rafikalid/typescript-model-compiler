@@ -1,10 +1,10 @@
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
-import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion } from '@src/parser/formatted-model';
+import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject } from '@src/parser/formatted-model';
 import { FieldType, Kind, MethodDescriptor, Reference, List, Param, EnumMember, BasicScalar } from '../parser/model';
 import { relative, dirname } from 'path';
-import { GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
+import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
 import { TargetExtension } from '@src/compile';
 
@@ -35,6 +35,7 @@ export function toGraphQL(
 	const GraphQLNonNull = _gqlImport('GraphQLNonNull');
 	const GraphQLList = _gqlImport('GraphQLList');
 	const GraphQLObjectType = _gqlImport('GraphQLObjectType');
+	const GraphQLInputObjectType = _gqlImport('GraphQLInputObjectType');
 	const GraphQLUnionType = _gqlImport('GraphQLUnionType');
 	/** Import from tt-model */
 	const ttModelImports: Map<string, ts.Identifier> = new Map();
@@ -60,7 +61,6 @@ export function toGraphQL(
 	/** Go through nodes */
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
-
 	//* Add circle fields
 	const circleStatementsBlock: ts.Statement[] = [];
 	for (let i = 0, len = circlesQueue.length; i < len; ++i) {
@@ -79,13 +79,7 @@ export function toGraphQL(
 					let methodVar = _import(field.method);
 					fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, field.method), field.param);
 					if (field.param != null && field.param.type != null) {
-						let paramType = field.param.type;
-						let pEntityName = paramType.name;
-						let paramEntity = rootInput.get(pEntityName);
-						if (paramEntity == null) throw new Error(`Missing entity "${pEntityName}" for param "${item.node.name}.${field.name}" at ${paramType.fileName}`);
-						let paramVar = mapEntityVar.get(paramEntity.escapedName);
-						if (paramVar == null) throw `Missing definition for entity "${pEntityName}" as param of "${item.node.name}.${field.name}" at ${paramType.fileName}`;
-						fieldConf.args = paramVar;
+						fieldConf.args = _fieldArg(field.param);
 					}
 				} else if (field.alias) {
 					fieldConf.resolve = _resolveOutputAlias(field.name);
@@ -138,7 +132,6 @@ export function toGraphQL(
 			}
 		}
 	}
-
 	//* Imports
 	const imports = _genImports(); // Generate imports from src
 	imports.push(
@@ -329,7 +322,20 @@ export function toGraphQL(
 				return node.type == null ? undefined : [node.type];
 			}
 			case Kind.PARAM: {
-				return node.type == null ? undefined : { isInput: true, nodes: [node.type] };
+				// return node.type == null ? undefined : { isInput: true, nodes: [node.type] };
+				// return undefined;
+				let ref = node.type;
+				if (ref != null) {
+					let entity = rootInput.get(ref.name);
+					let returnValue: FieldType[] = [];
+					if (entity == null) throw `Missing input entity ${ref.name}`;
+					if (entity.kind !== Kind.FORMATTED_INPUT_OBJECT) throw `Entity "${ref.name}" expected input object. Got ${Kind[entity.kind]}`;
+					for (let i = 0, fields = entity.fields, len = fields.length; i < len; ++i) {
+						returnValue.push(fields[i].type);
+					}
+					return { isInput: true, nodes: returnValue };
+				}
+				return undefined;
 			}
 			case Kind.UNION: {
 				// Add entity to circle check
@@ -480,7 +486,7 @@ export function toGraphQL(
 				graphqlDeclarations.push(
 					f.createVariableDeclaration(
 						vName, undefined, undefined,
-						f.createNewExpression(GraphQLObjectType, undefined, [
+						f.createNewExpression(GraphQLInputObjectType, undefined, [
 							_serializeObject(entityConf)
 						])
 					)
@@ -490,8 +496,9 @@ export function toGraphQL(
 				break;
 			}
 			case Kind.PARAM: {
-				// TODO fix this shit it's a param!
-				varId = childrenData[0]; // "undefined" means has no param
+				if (childrenData.length > 0) {
+					varId = _fieldArg(entity);
+				} else varId = undefined;
 				break;
 			}
 			case Kind.INPUT_FIELD: {
@@ -522,15 +529,12 @@ export function toGraphQL(
 				let typesArr: ts.Identifier = f.createUniqueName(`${entity.escapedName}_types`);
 				let types: ts.Expression[];
 				// Check if has circles
-				console.log('=> childrenData: ', childrenData.length)
 				if (childrenData.some(e => e == null)) {
 					//* Has circles
-					console.log('====> union types undefined')
 					circlesQueue.push({ type: Kind.UNION, union: entity, varId: typesArr, isInput });
 					types = [];
 				} else {
 					//* Has no circle
-					console.log('====> union types OK')
 					types = childrenData as ts.Expression[];
 				}
 				// Create types list
@@ -678,6 +682,23 @@ export function toGraphQL(
 			}
 		}
 		return varId;
+	}
+	/** Generate Object field args */
+	function _fieldArg(param: Param) {
+		let ref = param.type!;
+		let refEntity = rootInput.get(ref.name)!;
+		if (refEntity.kind !== Kind.FORMATTED_INPUT_OBJECT) throw `Entity "${refEntity.name}" expected input object. Got ${Kind[refEntity.kind]}`;
+		let properties: ts.PropertyAssignment[] = [];
+		for (let i = 0, fields = refEntity.fields, len = fields.length; i < len; ++i) {
+			let field = fields[i];
+			let paramVar = ResolveCircleFieldType(field);
+			let fieldConf: { [k in keyof GraphQLArgumentConfig]: any } = { type: paramVar };
+			if (field.defaultValue) fieldConf.defaultValue = field.defaultValue;
+			if (field.jsDoc) fieldConf.description = field.jsDoc;
+			if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
+			properties.push(f.createPropertyAssignment(field.alias ?? field.name, _serializeObject(fieldConf)));
+		}
+		return f.createObjectLiteralExpression(properties, pretty);
 	}
 	/** Create basic scalar */
 	function _createBasicScalar(parserName: string, entity: FormattedBasicScalar): ts.Identifier {

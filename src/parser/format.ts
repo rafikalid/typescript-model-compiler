@@ -42,7 +42,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				let entity: FormattedInputNode = {
 					kind: Kind.FORMATTED_INPUT_OBJECT,
 					name: node.name,
-					escapedName: escapeEntityName(node.name),
+					escapedName: node.escapedName!,
 					fields: _formatInputFields(node.fields),
 					wrappers: node.wrappers,
 					jsDoc: _compileJsDoc(node.jsDoc),
@@ -55,7 +55,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				let entity: FormattedOutputNode = {
 					kind: Kind.FORMATTED_OUTPUT_OBJECT,
 					name: node.name,
-					escapedName: escapeEntityName(node.name),
+					escapedName: node.escapedName!,
 					fields: _formatOutputFields(node.fields as Map<string, OutputField>),
 					wrappers: node.wrappers,
 					jsDoc: _compileJsDoc(node.jsDoc),
@@ -141,11 +141,6 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 		});
 		return result;
 	}
-}
-
-/** Escape entity name */
-export function escapeEntityName(name: string) {
-	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_');
 }
 
 /** Sort jsDoc */
