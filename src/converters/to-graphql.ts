@@ -58,6 +58,9 @@ export function toGraphQL(
 	const mapEntityVar: Map<string, ts.Identifier> = new Map();
 	/** Circles queue */
 	const circlesQueue: CircleQueueItem[] = [];
+	/** Seek validation */
+	const seekVldCircle: Set<FormattedInputNode> = new Set();
+	const mapVldEntityVar: Map<string, ts.Identifier> = new Map();
 	/** Go through nodes */
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
@@ -298,22 +301,12 @@ export function toGraphQL(
 			case Kind.FORMATTED_OUTPUT_OBJECT: {
 				// Add entity to circle check
 				seekCircle.add(node);
-				// List fields
-				let result: formattedOutputField[] = [];
-				for (let i = 0, fields = node.fields, len = fields.length; i < len; ++i) {
-					result.push(fields[i]);
-				}
-				return result;
+				return node.fields;
 			}
 			case Kind.FORMATTED_INPUT_OBJECT: {
 				// Add entity to circle check
 				seekCircle.add(node);
-				// List fields
-				let result: formattedInputField[] = [];
-				for (let i = 0, fields = node.fields, len = fields.length; i < len; ++i) {
-					result.push(fields[i]);
-				}
-				return result;
+				return node.fields;
 			}
 			case Kind.OUTPUT_FIELD: {
 				return node.param == null ? [node.type] : [node.type, node.param];
@@ -342,14 +335,8 @@ export function toGraphQL(
 				seekCircle.add(node);
 				return node.types;
 			}
-			case Kind.ENUM: {
-				let result: FormattedEnumMember[] = [];
-				for (let i = 0, members = node.members, len = members.length; i < len; ++i)
-					result.push(members[i]);
-				return result;
-			}
-			case Kind.LIST:
-				return [node.type];
+			case Kind.ENUM: return node.members;
+			case Kind.LIST: return [node.type];
 			case Kind.REF: {
 				let entityName = node.name;
 				let entity = isInput === true ? rootInput.get(entityName) : rootOutput.get(entityName);
@@ -768,11 +755,6 @@ export function toGraphQL(
 			], pretty)
 		);
 	}
-	/** Add resolver */
-	function _wrapResolver(resolveCb: ts.Expression, param: Param | undefined): ts.Expression {
-		// TODO implement resolver wrappers
-		return resolveCb;
-	}
 	/** Generate method */
 	function _createMethod(name: string, args: string[], body: ts.Statement[]) {
 		var params = [];
@@ -831,6 +813,93 @@ export function toGraphQL(
 			varId = varName;
 		} else {
 			varId = id;
+		}
+		return varId;
+	}
+	//* Validate input data
+	/** Add resolver */
+	type SeekVldNode = FormattedInputNode | FieldType | FormattedEnumMember | formattedInputField;
+	function _wrapResolver(resolveCb: ts.Expression, param: Param | undefined): ts.Expression {
+		seekVldCircle.clear();
+		mapVldEntityVar.clear();
+		let result = param != null && param.type != null ? seek<SeekVldNode, SeekOutputData>(param.type, _seekValidationDown, _seekValidationUp) : undefined;
+		// TODO implement resolver wrappers
+		return resolveCb;
+	}
+	/** Seek validation down */
+	function _seekValidationDown(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined): SeekVldNode[] | { nodes: SeekVldNode[], isInput: boolean } | undefined {
+		switch (node.kind) {
+			case Kind.FORMATTED_INPUT_OBJECT: {
+				// Add entity to circle check
+				seekVldCircle.add(node);
+				return node.fields;
+			}
+			case Kind.INPUT_FIELD: return node.type == null ? undefined : [node.type];
+			case Kind.UNION: {
+				seekVldCircle.add(node);
+				return node.types;
+			}
+			case Kind.ENUM: return node.members
+			case Kind.LIST: return [node.type];
+			case Kind.REF: {
+				let entityName = node.name;
+				let entity = rootInput.get(entityName);
+				if (entity == null) throw `Missing input entity "${entityName}" referenced at ${node.fileName}`;
+				let entityEscapedName = entity.escapedName;
+				if (mapVldEntityVar.has(entityEscapedName)) return undefined;
+				if (seekVldCircle.has(entity)) return undefined; // Circular
+				return [entity];
+			}
+			case Kind.SCALAR:
+			case Kind.BASIC_SCALAR:
+			case Kind.ENUM_MEMBER:
+				return undefined;
+			default: {
+				let n: never = node;
+			}
+		}
+	}
+	/** Seek validation up */
+	function _seekValidationUp(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined, childrenData: SeekOutputData[]): SeekOutputData {
+		var varId: SeekOutputData;
+		switch (node.kind) {
+			case Kind.FORMATTED_INPUT_OBJECT: {
+				// Add entity to circle check
+				seekVldCircle.add(node);
+				return node.fields;
+			}
+			case Kind.INPUT_FIELD: return node.type == null ? undefined : [node.type];
+			case Kind.UNION: {
+				seekVldCircle.add(node);
+				return node.types;
+			}
+			case Kind.LIST: {
+				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
+				if (varId != null) {
+
+
+
+					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
+					varId = f.createNewExpression(GraphQLList, undefined, [varId]);
+				}
+				break;
+			}
+			case Kind.REF: {
+				varId = childrenData[0]; // "undefined" means has circular to parents
+				if (varId == null) {
+					let refEntity = rootInput.get(node.name);
+					varId = mapVldEntityVar.get(refEntity!.escapedName);
+				}
+				break;
+			}
+			case Kind.ENUM:
+			case Kind.SCALAR:
+			case Kind.BASIC_SCALAR:
+			case Kind.ENUM_MEMBER:
+				return undefined; // Those are already checked by graphQL
+			default: {
+				let n: never = node;
+			}
 		}
 		return varId;
 	}
