@@ -10,7 +10,7 @@ const parseYaml = Yaml.parse;
 //@ts-ignore
 import strMath from 'string-math';
 import bytes from 'bytes';
-import { DEFAULT_SCALARS } from "tt-model";
+import { DEFAULT_SCALARS, ResolverConfig } from "tt-model";
 
 /**
  * Extract Model from typescript code
@@ -238,7 +238,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 								fileNames: [fileName],
 								inherit: inheritedEntities,
 								jsDoc: jsDoc,
-								wrappers: undefined
+								wrappers: undefined,
+								before: undefined,
+								after: undefined
 							};
 							if (isImplementation) {
 								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
@@ -725,7 +727,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 							fileNames: [fileName],
 							inherit: undefined,
 							jsDoc: jsDoc,
-							wrappers: undefined
+							wrappers: undefined,
+							before: undefined,
+							after: undefined
 						};
 						let typeRef: Reference = {
 							kind: Kind.REF,
@@ -865,7 +869,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
 										let property = properties[j];
 										if (!ts.isPropertyAssignment(property)) continue;
-										switch (property.name?.getText()) {
+										let propertyName = property.name?.getText() as keyof ResolverConfig<any>;
+										switch (propertyName) {
 											case "outputFields":
 												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
 													_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
@@ -875,27 +880,62 @@ export function parse(files: readonly string[], program: ts.Program) {
 												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
 													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
 												break;
-											case 'wrapOutput': {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.wrappers ??= []).push({
-													name: 'wrapOutput',
+											case "BeforeInput": {
+												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+												(entity.before ??= []).push({
+													name: propertyName,
 													className: nodeName,
-													fileName: fileName,
-													isClass: false,
-													isStatic: true
+													fileName: fileName
+												});
+												break;
+											}
+											case "AfterInput": {
+												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+												(entity.after ??= []).push({
+													name: propertyName,
+													className: nodeName,
+													fileName: fileName
+												});
+												break;
+											}
+											case "beforeOutput": {
+												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+												(entity.before ??= []).push({
+													name: propertyName,
+													className: nodeName,
+													fileName: fileName
+												});
+												break;
+											}
+											case "afterOutput": {
+												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+												(entity.after ??= []).push({
+													name: propertyName,
+													className: nodeName,
+													fileName: fileName
 												});
 												break;
 											}
 											case 'wrapInput': {
 												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
 												(entity.wrappers ??= []).push({
-													name: 'wrapInput',
+													name: propertyName,
 													className: nodeName,
-													fileName: fileName,
-													isClass: false,
-													isStatic: true
+													fileName: fileName
 												});
 												break;
+											}
+											case "wrapOutput": {
+												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+												(entity.wrappers ??= []).push({
+													name: propertyName,
+													className: nodeName,
+													fileName: fileName
+												});
+												break;
+											}
+											default: {
+												let n: never = propertyName;
 											}
 										}
 									}
@@ -1084,6 +1124,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 	}
 
 	/** Create Object entity if not exists */
+	function _upObjectEntity(isInput: true, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject;
+	function _upObjectEntity(isInput: false | undefined, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): OutputObject;
+	function _upObjectEntity(isInput: boolean | undefined, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject | OutputObject;
 	function _upObjectEntity(isInput: boolean | undefined, name: string, fileName: string, deprecated: string | undefined, jsDoc: string[] | undefined): InputObject | OutputObject {
 		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 		let entity = targetMap.get(name) as InputObject | OutputObject;
@@ -1097,7 +1140,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 				fileNames: [fileName],
 				inherit: undefined,
 				jsDoc: jsDoc?.slice(0) ?? [],
-				wrappers: undefined
+				wrappers: undefined,
+				before: undefined,
+				after: undefined
 			};
 			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}

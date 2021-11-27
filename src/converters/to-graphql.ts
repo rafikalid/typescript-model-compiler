@@ -7,6 +7,7 @@ import { relative, dirname } from 'path';
 import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
 import { TargetExtension } from '@src/compile';
+import { InputField, InputList, InputObject, Kind as ModelKind } from 'tt-model';
 
 /**
  * Generate Graphql schema from data
@@ -835,10 +836,6 @@ export function toGraphQL(
 				return node.fields;
 			}
 			case Kind.INPUT_FIELD: return node.type == null ? undefined : [node.type];
-			case Kind.UNION: {
-				seekVldCircle.add(node);
-				return node.types;
-			}
 			case Kind.ENUM: return node.members
 			case Kind.LIST: return [node.type];
 			case Kind.REF: {
@@ -850,6 +847,7 @@ export function toGraphQL(
 				if (seekVldCircle.has(entity)) return undefined; // Circular
 				return [entity];
 			}
+			case Kind.UNION: // No union in graphQL
 			case Kind.SCALAR:
 			case Kind.BASIC_SCALAR:
 			case Kind.ENUM_MEMBER:
@@ -864,23 +862,51 @@ export function toGraphQL(
 		var varId: SeekOutputData;
 		switch (node.kind) {
 			case Kind.FORMATTED_INPUT_OBJECT: {
-				// Add entity to circle check
-				seekVldCircle.add(node);
-				return node.fields;
+				// Remove entity from circle check
+				seekVldCircle.delete(node);
+				// Check for circles
+				const fields: ts.PropertyAssignment[] = [];
+				const circleFields: formattedOutputField[] = []
+				for (let i = 0, arr = entity.fields, len = arr.length; i < len; ++i) {
+					let field = childrenData[i] as ts.PropertyAssignment;
+					if (field == null) circleFields.push(arr[i]);
+					else fields.push(field);
+				}
+				if (childrenData.length) {
+					let conf: { [k in keyof InputObject]: any } = {
+						kind: ModelKind.INPUT_OBJECT,
+						fields: childrenData
+					};
+					varId = _serializeObject(conf);
+				}
+				break;
 			}
-			case Kind.INPUT_FIELD: return node.type == null ? undefined : [node.type];
-			case Kind.UNION: {
-				seekVldCircle.add(node);
-				return node.types;
+			case Kind.INPUT_FIELD: {
+				//* Type
+				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
+				// TODO check for validations
+				if (varId != null) {
+					let conf: { [k in keyof InputField]: any } = {
+						name: node.name,
+						required: node.required,
+						type: varId,
+						// TODO
+					};
+					varId = _serializeObject(conf);
+				}
+				break;
 			}
 			case Kind.LIST: {
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
+				// TODO check too is there before or after or wrappers
 				if (varId != null) {
-
-
-
-					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
-					varId = f.createNewExpression(GraphQLList, undefined, [varId]);
+					let conf: { [k in keyof InputList]: any } = {
+						kind: ModelKind.INPUT_LIST,
+						required: node.required, // Graphql will take care of this
+						type: varId,
+						// TODO add after & before
+					};
+					varId = _serializeObject(conf);
 				}
 				break;
 			}
@@ -892,6 +918,7 @@ export function toGraphQL(
 				}
 				break;
 			}
+			case Kind.UNION: // No union in graphQL
 			case Kind.ENUM:
 			case Kind.SCALAR:
 			case Kind.BASIC_SCALAR:

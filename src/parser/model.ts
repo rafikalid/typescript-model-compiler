@@ -98,7 +98,9 @@ export interface OutputObject extends _Node {
 	/** Fields */
 	fields: Map<string, OutputField>;
 	/** Wrap object validation */
-	wrappers: MethodDescriptor[] | undefined
+	wrappers: MethodDescM[] | undefined
+	before: MethodDescM[] | undefined
+	after: MethodDescM[] | undefined
 }
 
 /** Input Object  */
@@ -145,14 +147,17 @@ export interface OutputField extends _Field {
 }
 
 
-/** Method descriptor */
-export interface MethodDescriptor {
+/** Method descriptor minimal */
+export interface MethodDescM {
 	/** File name */
 	fileName: string;
 	/** class name */
 	className: string;
 	/** Method name */
 	name: string | undefined;
+}
+/** Method descriptor */
+export interface MethodDescriptor extends MethodDescM {
 	/** is prototype or static method */
 	isStatic: boolean;
 	/** Is target a class */
