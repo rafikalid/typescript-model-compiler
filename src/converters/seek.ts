@@ -4,10 +4,10 @@ export function seek<T, TData>(
 	/**
 	 * @return  T[]	- List of children
 	 * @return  undefined	- No child or already created
-	 * @return  false	- Circulation: Same parent is referenced
+	 * @return  false	- ignore this field
 	 */
-	goDown: (node: T, isInput: boolean, parentNode: T | undefined) => T[] | { nodes: T[], isInput: boolean } | undefined,
-	goUp: (node: T, isInput: boolean, parentNode: T | undefined, childrenData: TData[]) => TData
+	goDown: (node: T, isInput: boolean, parentNode: T | undefined) => T[] | { nodes: T[], isInput: boolean } | undefined | false,
+	goUp: (node: T, isInput: boolean, parentNode: T | undefined, childrenData: TData[]) => TData | undefined | false
 ): TData[] {
 	const rootChildrenData: TData[] = [];
 	const queue: QueueSchema<T, TData>[] = [
@@ -41,7 +41,7 @@ export function seek<T, TData>(
 	// Seek
 	const errors: string[] = []
 	var result: TData[];
-	var childReturnedData: TData;
+	var childReturnedData: TData | undefined | false;
 	const _isArray = Array.isArray;
 	rootLoop: while (true) {
 		try {
@@ -51,7 +51,7 @@ export function seek<T, TData>(
 				case NodeVisitState.GO_DOWN: {
 					let { node, parentNode, isInput } = item;
 					let childNodes = goDown(node, isInput, parentNode);
-					if (childNodes == null) break;
+					if (childNodes == null || childNodes === false) break; // if circular or already created or ignore it
 					if (!_isArray(childNodes)) {
 						isInput = childNodes.isInput;
 						childNodes = childNodes.nodes;

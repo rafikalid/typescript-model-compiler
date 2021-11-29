@@ -45,6 +45,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					escapedName: node.escapedName!,
 					fields: _formatInputFields(node.fields),
 					wrappers: node.wrappers,
+					before: node.before,
+					after: node.after,
 					jsDoc: _compileJsDoc(node.jsDoc),
 					deprecated: node.deprecated
 				}
@@ -58,6 +60,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					escapedName: node.escapedName!,
 					fields: _formatOutputFields(node.fields as Map<string, OutputField>),
 					wrappers: node.wrappers,
+					before: node.before,
+					after: node.after,
 					jsDoc: _compileJsDoc(node.jsDoc),
 					deprecated: node.deprecated
 				}

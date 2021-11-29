@@ -3,11 +3,11 @@ import {
 	Enum,
 	EnumMember,
 	InputField,
-	MethodDescriptor,
 	Kind,
 	OutputField,
 	Scalar,
 	Union,
+	MethodDescM,
 	_Node
 } from './model';
 
@@ -50,7 +50,9 @@ export interface FormattedOutputObject {
 	/** Fields */
 	fields: formattedOutputField[];
 	/** Exec methods before and after fields validation */
-	wrappers: MethodDescriptor[] | undefined
+	wrappers: MethodDescM[] | undefined
+	before: MethodDescM[] | undefined
+	after: MethodDescM[] | undefined
 	/** JS DOCS */
 	jsDoc: string | undefined;
 	/** Deprecation message when exists */

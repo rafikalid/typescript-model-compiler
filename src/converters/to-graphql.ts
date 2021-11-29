@@ -8,6 +8,7 @@ import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, G
 import { seek } from './seek';
 import { TargetExtension } from '@src/compile';
 import { InputField, InputList, InputObject, Kind as ModelKind } from 'tt-model';
+import { compileAsserts } from '@src/validator/compile-asserts';
 
 /**
  * Generate Graphql schema from data
@@ -40,6 +41,8 @@ export function toGraphQL(
 	const GraphQLUnionType = _gqlImport('GraphQLUnionType');
 	/** Import from tt-model */
 	const ttModelImports: Map<string, ts.Identifier> = new Map();
+	// Validation function
+	const inputValidationWrapperId = _ttModelImport('pipeInputGQL');
 	//* Other imports
 	type srcImportEntry = Map<string, { varName: ts.Identifier; isClass: boolean }>;
 	const srcImports: Map<string, srcImportEntry> = new Map();
@@ -62,6 +65,7 @@ export function toGraphQL(
 	/** Seek validation */
 	const seekVldCircle: Set<FormattedInputNode> = new Set();
 	const mapVldEntityVar: Map<string, ts.Identifier> = new Map();
+	const circlesVldQueue: CircleQueueItem[] = [];
 	/** Go through nodes */
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
 	seek<SeekNode, SeekOutputData>(queue, _seekOutputDown, _seekOutputUp);
@@ -135,6 +139,26 @@ export function toGraphQL(
 				let c: never = item;
 			}
 		}
+	}
+	//* Add Input validation circle fields
+	if (circlesVldQueue.length > 0) {
+		let values: Map<ts.Identifier, ts.Expression[]> = new Map();
+		for (let i = 0, len = circlesVldQueue.length; i < len; ++i) {
+			let item = circlesVldQueue[i];
+			if (item.type != Kind.INPUT_FIELD) throw new Error(`Unexpected input validation kind "${Kind[item.type]}"`);
+			let confExpr = seek<SeekVldNode, SeekOutputData>([item.field], _seekValidationDown, _seekValidationUp)[0] as ts.Expression;
+			// Group
+			let grp = values.get(item.varId);
+			if (grp == null) values.set(item.varId, [confExpr]);
+			else grp.push(confExpr);
+		}
+		values.forEach((arr, varId) => {
+			circleStatementsBlock.push(
+				f.createExpressionStatement(f.createCallExpression(
+					f.createPropertyAccessExpression(varId, 'push'), undefined, arr
+				))
+			);
+		});
 	}
 	//* Imports
 	const imports = _genImports(); // Generate imports from src
@@ -822,13 +846,60 @@ export function toGraphQL(
 	type SeekVldNode = FormattedInputNode | FieldType | FormattedEnumMember | formattedInputField;
 	function _wrapResolver(resolveCb: ts.Expression, param: Param | undefined): ts.Expression {
 		seekVldCircle.clear();
-		mapVldEntityVar.clear();
-		let result = param != null && param.type != null ? seek<SeekVldNode, SeekOutputData>(param.type, _seekValidationDown, _seekValidationUp) : undefined;
+		// mapVldEntityVar.clear();
+		// circlesVldQueue.length = 0;
+		let result: ts.Expression | undefined;
+		let inputType = param?.type;
+		if (inputType != null) {
+			let inputEntity = rootInput.get(inputType.name);
+			if (inputEntity == null) throw `Unexpected missing input entity "${inputType.name}" referenced at: ${inputType.fileName}`;
+			result = mapVldEntityVar.get(inputEntity.escapedName);
+			if (result == null) result = seek<SeekVldNode, SeekOutputData>([inputEntity], _seekValidationDown, _seekValidationUp)[0] as ts.Expression | undefined;
+		}
+		// Create wrapper
+		let body: ts.Statement[] = [];
+		let useAsync = false;
+		// Validate input data
+		if (result != null) {
+			body.push(
+				f.createExpressionStatement(
+					f.createBinaryExpression(
+						f.createIdentifier('args'),
+						f.createToken(ts.SyntaxKind.EqualsToken),
+						f.createAwaitExpression( // TODO check if add await expression or not (to improve performance)
+							f.createCallExpression(inputValidationWrapperId, undefined, [
+								result,
+								f.createIdentifier('parent'),
+								f.createIdentifier('args'),
+								f.createIdentifier('ctx'),
+								f.createIdentifier('info')
+							])
+						)
+					)
+				)
+			);
+			useAsync = true; // Improve this by check if really needed async!
+		}
+		// Return resolver value
+		body.push(
+			f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
+			f.createReturnStatement(
+				f.createCallExpression(resolveCb, undefined, [
+					f.createIdentifier('parent'),
+					f.createIdentifier('args'),
+					f.createIdentifier('ctx'),
+					f.createIdentifier('info')
+				])
+			)
+		);
+
 		// TODO implement resolver wrappers
-		return resolveCb;
+		return f.createFunctionExpression(
+			useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined
+			, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(body, pretty));
 	}
 	/** Seek validation down */
-	function _seekValidationDown(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined): SeekVldNode[] | { nodes: SeekVldNode[], isInput: boolean } | undefined {
+	function _seekValidationDown(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined): SeekVldNode[] | { nodes: SeekVldNode[], isInput: boolean } | undefined | false {
 		switch (node.kind) {
 			case Kind.FORMATTED_INPUT_OBJECT: {
 				// Add entity to circle check
@@ -851,7 +922,7 @@ export function toGraphQL(
 			case Kind.SCALAR:
 			case Kind.BASIC_SCALAR:
 			case Kind.ENUM_MEMBER:
-				return undefined;
+				return false;
 			default: {
 				let n: never = node;
 			}
@@ -864,47 +935,108 @@ export function toGraphQL(
 			case Kind.FORMATTED_INPUT_OBJECT: {
 				// Remove entity from circle check
 				seekVldCircle.delete(node);
+				// TODO ignore this object if has no children and no validation, add validation
 				// Check for circles
-				const fields: ts.PropertyAssignment[] = [];
-				const circleFields: formattedOutputField[] = []
-				for (let i = 0, arr = entity.fields, len = arr.length; i < len; ++i) {
-					let field = childrenData[i] as ts.PropertyAssignment;
+				const fields: ts.ObjectLiteralExpression[] = [];
+				const circleFields: formattedInputField[] = []
+				for (let i = 0, arr = node.fields, len = arr.length; i < len; ++i) {
+					let field = childrenData[i] as ts.ObjectLiteralExpression | undefined | false;
 					if (field == null) circleFields.push(arr[i]);
-					else fields.push(field);
+					else if (field != false) fields.push(field);
 				}
-				if (childrenData.length) {
-					let conf: { [k in keyof InputObject]: any } = {
-						kind: ModelKind.INPUT_OBJECT,
-						fields: childrenData
-					};
-					varId = _serializeObject(conf);
+				// Create properties list
+				let fieldsArrExpression: ts.Expression = f.createArrayLiteralExpression(fields, pretty);
+				if (circleFields.length) {
+					let fieldsVar = f.createUniqueName(`${node.escapedName}_fields`);
+					inputDeclarations.push(
+						f.createVariableDeclaration(
+							fieldsVar, undefined, undefined, fieldsArrExpression
+						)
+					);
+					fieldsArrExpression = fieldsVar;
+					// Add to circle queue
+					for (let i = 0, len = circleFields.length; i < len; ++i) {
+						circlesVldQueue.push({
+							type: Kind.INPUT_FIELD, node, field: circleFields[i], varId: fieldsVar
+						});
+					}
 				}
+				// Create object
+				let entityConf: { [k in keyof InputObject]: any } = {
+					kind: ModelKind.INPUT_OBJECT,
+					fields: fieldsArrExpression
+				};
+				let vName = varId = f.createUniqueName(node.escapedName);
+				inputDeclarations.push(
+					f.createVariableDeclaration(
+						vName, undefined, undefined, _serializeObject(entityConf)
+					)
+				);
+				// Add var
+				mapVldEntityVar.set(node.escapedName, vName);
 				break;
 			}
 			case Kind.INPUT_FIELD: {
 				//* Type
-				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
-				// TODO check for validations
-				if (varId != null) {
+				varId = childrenData[0] as ts.Expression | undefined | false; // "undefined" means has circular to parents
+				if (varId == null) { } // circular field
+				else if ( // Ignore if own children ignored and has no validation rule
+					varId === false &&
+					node.alias == null &&
+					node.asserts == null &&
+					node.method == null
+				) { }
+				else {
+					// Validation: Before
+					let pipeInputBody: ts.Statement[] = [];
+					// Asserts
+					if (node.asserts != null) {
+						let expr = compileAsserts(node.name, node.asserts, node.type, f, pretty);
+						if (expr != null) pipeInputBody.push(...expr);
+					}
+					if (node.method != null) {
+						let vldId = _import(node.method);
+						pipeInputBody.push(
+							f.createExpressionStatement(
+								f.createBinaryExpression(
+									f.createIdentifier('value'), f.createToken(ts.SyntaxKind.EqualsToken),
+									f.createCallExpression(
+										_getMethodCall(vldId, node.method), undefined,
+										[
+											f.createIdentifier('parent'),
+											f.createIdentifier('value'),
+											f.createIdentifier('ctx'),
+											f.createIdentifier('info')
+										]
+									)
+								)
+							)
+						);
+					}
+					let pipeExpr: ts.Expression | undefined;
+					if (pipeInputBody.length > 0) {
+						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('value')));
+						pipeExpr = f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(pipeInputBody));
+					}
+					// Conf
 					let conf: { [k in keyof InputField]: any } = {
 						name: node.name,
+						alias: node.alias ?? node.name,
 						required: node.required,
-						type: varId,
-						// TODO
+						type: varId === false ? undefined : varId,
+						pipe: pipeExpr
 					};
 					varId = _serializeObject(conf);
 				}
 				break;
 			}
 			case Kind.LIST: {
-				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
-				// TODO check too is there before or after or wrappers
-				if (varId != null) {
+				varId = childrenData[0] as ts.Expression | undefined | false; // "undefined" means has circular to parents
+				if (varId != null && varId != false) {
 					let conf: { [k in keyof InputList]: any } = {
 						kind: ModelKind.INPUT_LIST,
 						required: node.required, // Graphql will take care of this
-						type: varId,
-						// TODO add after & before
+						type: varId
 					};
 					varId = _serializeObject(conf);
 				}
@@ -923,17 +1055,36 @@ export function toGraphQL(
 			case Kind.SCALAR:
 			case Kind.BASIC_SCALAR:
 			case Kind.ENUM_MEMBER:
-				return undefined; // Those are already checked by graphQL
+				varId = false;
+				break; // Those are already checked by graphQL
 			default: {
 				let n: never = node;
 			}
 		}
 		return varId;
 	}
+
+	/** Resolver args */
+	function _getResolverArgs() {
+		return [
+			f.createParameterDeclaration(undefined, undefined, undefined,
+				f.createIdentifier('parent'), undefined,
+				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
+			f.createParameterDeclaration(undefined, undefined, undefined,
+				f.createIdentifier('args'), undefined,
+				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
+			f.createParameterDeclaration(undefined, undefined, undefined,
+				f.createIdentifier('ctx'), undefined,
+				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
+			f.createParameterDeclaration(undefined, undefined, undefined,
+				f.createIdentifier('info'), undefined,
+				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
+		]
+	}
 }
 
 /** Seek data */
-type SeekOutputData = ts.Expression | ts.PropertyAssignment | undefined;
+type SeekOutputData = ts.Expression | ts.PropertyAssignment | undefined | false;
 
 
 /** Relative path */
