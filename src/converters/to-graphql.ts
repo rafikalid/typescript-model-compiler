@@ -997,26 +997,20 @@ export function toGraphQL(
 					if (node.method != null) {
 						let vldId = _import(node.method);
 						pipeInputBody.push(
-							f.createExpressionStatement(
-								f.createBinaryExpression(
-									f.createIdentifier('value'), f.createToken(ts.SyntaxKind.EqualsToken),
-									f.createCallExpression(
-										_getMethodCall(vldId, node.method), undefined,
-										[
-											f.createIdentifier('parent'),
-											f.createIdentifier('value'),
-											f.createIdentifier('ctx'),
-											f.createIdentifier('info')
-										]
-									)
+							f.createReturnStatement(
+								f.createCallExpression(
+									_getMethodCall(vldId, node.method), undefined,
+									[
+										f.createIdentifier('parent'),
+										f.createIdentifier('value'),
+										f.createIdentifier('ctx'),
+										f.createIdentifier('info')
+									]
 								)
 							)
 						);
-					}
-					let pipeExpr: ts.Expression | undefined;
-					if (pipeInputBody.length > 0) {
+					} else if (pipeInputBody.length > 0) {
 						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('value')));
-						pipeExpr = f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(pipeInputBody));
 					}
 					// Conf
 					let conf: { [k in keyof InputField]: any } = {
@@ -1024,7 +1018,7 @@ export function toGraphQL(
 						alias: node.alias ?? node.name,
 						required: node.required,
 						type: varId === false ? undefined : varId,
-						pipe: pipeExpr
+						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(pipeInputBody))
 					};
 					varId = _serializeObject(conf);
 				}
