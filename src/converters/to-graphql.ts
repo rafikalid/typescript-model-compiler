@@ -1,8 +1,8 @@
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
-import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedOutputObject, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject } from '@src/parser/formatted-model';
-import { FieldType, Kind, MethodDescriptor, Reference, List, Param, EnumMember, BasicScalar } from '../parser/model';
+import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject } from '@src/parser/formatted-model';
+import { FieldType, Kind, MethodDescriptor, List, Param, MethodDescM } from '../parser/model';
 import { relative, dirname } from 'path';
 import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
@@ -241,7 +241,7 @@ export function toGraphQL(
 		)
 	}
 	/** Local import */
-	function _import(method: MethodDescriptor) {
+	function _import(method: MethodDescM) {
 		var fl = srcImports.get(method.fileName);
 		if (fl == null) {
 			fl = new Map();
@@ -251,7 +251,7 @@ export function toGraphQL(
 		if (vr == null) {
 			vr = {
 				varName: f.createUniqueName(method.className),
-				isClass: method.isClass
+				isClass: (method as MethodDescriptor).isClass
 			};
 			fl.set(method.className, vr);
 		}
@@ -746,16 +746,16 @@ export function toGraphQL(
 		return scalarVar;
 	}
 	/** Generate method call */
-	function _getMethodCall(varId: ts.Identifier, method: MethodDescriptor, methodName?: string) {
+	function _getMethodCall(varId: ts.Identifier, method: MethodDescM, methodName?: string) {
 		methodName ??= method.name!;
 		return f.createPropertyAccessExpression(
 			varId,
-			method.isClass
+			(method as MethodDescriptor).isClass
 				? f.createIdentifier(methodName)
 				: f.createIdentifier(
-					method.isStatic === true
-						? methodName
-						: `prototype.${methodName}`
+					(method as MethodDescriptor).isStatic === false
+						? `prototype.${methodName}`
+						: methodName
 				)
 		);
 	}
@@ -964,7 +964,11 @@ export function toGraphQL(
 				// Create object
 				let entityConf: { [k in keyof InputObject]: any } = {
 					kind: ModelKind.INPUT_OBJECT,
-					fields: fieldsArrExpression
+					name: node.name,
+					fields: fieldsArrExpression,
+					before: node.before == null ? undefined : _concatBeforeAfter(node.before),
+					after: node.after == null ? undefined : _concatBeforeAfter(node.after),
+					wrappers: node.wrappers == null ? undefined : f.createArrayLiteralExpression(node.wrappers.map(_createMethodCallExp), pretty)
 				};
 				let vName = varId = f.createUniqueName(node.escapedName);
 				inputDeclarations.push(
@@ -1075,6 +1079,47 @@ export function toGraphQL(
 				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
 		]
 	}
+	/** Concat before and after */
+	function _concatBeforeAfter(arr: MethodDescM[]): any {
+		let len = arr.length;
+		// If only has one method
+		if (len === 1) {
+			return _createMethodCallExp(arr[0]);
+		} else {
+			let body: ts.Statement[] = [];
+			// Add first methods
+			for (let i = 0; i < len; ++i) {
+				body.push(
+					f.createExpressionStatement(
+						f.createBinaryExpression(
+							f.createIdentifier('value'),
+							f.createToken(ts.SyntaxKind.EqualsToken),
+							f.createAwaitExpression(_createMethodCallExp(arr[i])) //TODO optimize using async by detecting promises
+						)
+					)
+				);
+			}
+			// Add Last method
+			body.push(f.createReturnStatement(_createMethodCallExp(arr[len])));
+			// create method
+			return f.createFunctionExpression([
+				f.createModifier(ts.SyntaxKind.AsyncKeyword)], // TODO Optimize using async by detecting promises
+				undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(body))
+		}
+	}
+	/** Create resolver call expression */
+	function _createMethodCallExp(method: MethodDescM) {
+		let vldId = _import(method);
+		return f.createCallExpression(
+			_getMethodCall(vldId, method), undefined,
+			[
+				f.createIdentifier('parent'),
+				f.createIdentifier('value'),
+				f.createIdentifier('ctx'),
+				f.createIdentifier('info')
+			]
+		)
+	}
 }
 
 /** Seek data */
@@ -1119,3 +1164,5 @@ interface CircleQueueUnion {
 	varId: ts.Identifier
 	isInput: boolean
 }
+
+
