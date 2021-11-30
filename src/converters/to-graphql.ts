@@ -202,8 +202,7 @@ export function toGraphQL(
 			f.createParenthesizedExpression(f.createFunctionExpression(
 				undefined, undefined, undefined, undefined, [], undefined,
 				f.createBlock(statementsBlock, pretty)
-			)),
-			undefined, []
+			)), undefined, []
 		)
 	};
 	/** Generate GraphQL import */
@@ -564,18 +563,12 @@ export function toGraphQL(
 					resolveType: _createMethod('resolveType', ['value', 'ctx', 'info'], [
 						f.createReturnStatement(f.createElementAccessExpression(
 							typesArr,
-							f.createCallExpression(
+							_callExpression(
 								f.createPropertyAccessExpression(
 									_import(entity.parser),
 									f.createIdentifier('resolveType')
-								),
-								undefined,
-								[
-									f.createIdentifier('value'),
-									f.createIdentifier('ctx'),
-									f.createIdentifier('info')
-								]
-							)
+								)
+								, ['value', 'ctx', 'info'])
 						))
 					])
 				};
@@ -762,16 +755,7 @@ export function toGraphQL(
 	/** Resolve output alias */
 	function _resolveOutputAlias(name: string) {
 		return f.createFunctionExpression(
-			undefined, undefined, undefined, undefined,
-			[
-				f.createParameterDeclaration(
-					undefined, undefined, undefined,
-					'parent', undefined,
-					f.createKeywordTypeNode(
-						ts.SyntaxKind.AnyKeyword
-					), undefined
-				)
-			], undefined, f.createBlock([
+			undefined, undefined, undefined, undefined, _getResolverArgs('parent'), undefined, f.createBlock([
 				f.createReturnStatement(
 					f.createPropertyAccessExpression(
 						f.createIdentifier('parent'), name
@@ -867,13 +851,7 @@ export function toGraphQL(
 						f.createIdentifier('args'),
 						f.createToken(ts.SyntaxKind.EqualsToken),
 						f.createAwaitExpression( // TODO check if add await expression or not (to improve performance)
-							f.createCallExpression(inputValidationWrapperId, undefined, [
-								result,
-								f.createIdentifier('parent'),
-								f.createIdentifier('args'),
-								f.createIdentifier('ctx'),
-								f.createIdentifier('info')
-							])
+							_callExpression(result, ['parent', 'args', 'ctx', 'info'])
 						)
 					)
 				)
@@ -883,20 +861,13 @@ export function toGraphQL(
 		// Return resolver value
 		body.push(
 			f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
-			f.createReturnStatement(
-				f.createCallExpression(resolveCb, undefined, [
-					f.createIdentifier('parent'),
-					f.createIdentifier('args'),
-					f.createIdentifier('ctx'),
-					f.createIdentifier('info')
-				])
-			)
+			f.createReturnStatement(_callExpression(resolveCb, ['parent', 'args', 'ctx', 'info']))
 		);
 
 		// TODO implement resolver wrappers
 		return f.createFunctionExpression(
 			useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined
-			, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(body, pretty));
+			, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(body, pretty));
 	}
 	/** Seek validation down */
 	function _seekValidationDown(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined): SeekVldNode[] | { nodes: SeekVldNode[], isInput: boolean } | undefined | false {
@@ -968,7 +939,8 @@ export function toGraphQL(
 					fields: fieldsArrExpression,
 					before: node.before == null ? undefined : _concatBeforeAfter(node.before),
 					after: node.after == null ? undefined : _concatBeforeAfter(node.after),
-					wrappers: node.wrappers == null ? undefined : f.createArrayLiteralExpression(node.wrappers.map(_createMethodCallExp), pretty)
+					//TODO change wrappers to "wrap"
+					wrap: node.wrappers == null ? undefined : _genWrappers(node.wrappers)
 				};
 				let vName = varId = f.createUniqueName(node.escapedName);
 				inputDeclarations.push(
@@ -1001,17 +973,7 @@ export function toGraphQL(
 					if (node.method != null) {
 						let vldId = _import(node.method);
 						pipeInputBody.push(
-							f.createReturnStatement(
-								f.createCallExpression(
-									_getMethodCall(vldId, node.method), undefined,
-									[
-										f.createIdentifier('parent'),
-										f.createIdentifier('value'),
-										f.createIdentifier('ctx'),
-										f.createIdentifier('info')
-									]
-								)
-							)
+							f.createReturnStatement(_callExpression(_getMethodCall(vldId, node.method), ['parent', 'args', 'ctx', 'info']))
 						);
 					} else if (pipeInputBody.length > 0) {
 						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('value')));
@@ -1022,7 +984,7 @@ export function toGraphQL(
 						alias: node.alias ?? node.name,
 						required: node.required,
 						type: varId === false ? undefined : varId,
-						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(pipeInputBody))
+						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(pipeInputBody))
 					};
 					varId = _serializeObject(conf);
 				}
@@ -1063,62 +1025,103 @@ export function toGraphQL(
 	}
 
 	/** Resolver args */
-	function _getResolverArgs() {
-		return [
-			f.createParameterDeclaration(undefined, undefined, undefined,
-				f.createIdentifier('parent'), undefined,
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
-			f.createParameterDeclaration(undefined, undefined, undefined,
-				f.createIdentifier('args'), undefined,
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
-			f.createParameterDeclaration(undefined, undefined, undefined,
-				f.createIdentifier('ctx'), undefined,
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
-			f.createParameterDeclaration(undefined, undefined, undefined,
-				f.createIdentifier('info'), undefined,
-				f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
-		]
+	function _getResolverArgs(...args: string[]) {
+		var result: ts.ParameterDeclaration[] = [];
+		for (let i = 0, len = args.length; i < len; i++) {
+			result.push(
+				f.createParameterDeclaration(undefined, undefined, undefined,
+					f.createIdentifier(args[i]), undefined,
+					f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined)
+			);
+		}
+		return result;
 	}
 	/** Concat before and after */
 	function _concatBeforeAfter(arr: MethodDescM[]): any {
-		let len = arr.length;
-		// If only has one method
-		if (len === 1) {
-			return _createMethodCallExp(arr[0]);
-		} else {
-			let body: ts.Statement[] = [];
-			// Add first methods
-			for (let i = 0; i < len; ++i) {
-				body.push(
-					f.createExpressionStatement(
-						f.createBinaryExpression(
-							f.createIdentifier('value'),
-							f.createToken(ts.SyntaxKind.EqualsToken),
-							f.createAwaitExpression(_createMethodCallExp(arr[i])) //TODO optimize using async by detecting promises
-						)
+		let body: ts.Statement[] = [];
+		// Add first methods
+		let len = arr.length - 1;
+		for (let i = 0; i < len; ++i) {
+			body.push(
+				f.createExpressionStatement(
+					f.createBinaryExpression(
+						f.createIdentifier('args'),
+						f.createToken(ts.SyntaxKind.EqualsToken),
+						f.createAwaitExpression(_createMethodCallExp(arr[i])) //TODO optimize using async by detecting promises
 					)
-				);
-			}
-			// Add Last method
-			body.push(f.createReturnStatement(_createMethodCallExp(arr[len])));
-			// create method
-			return f.createFunctionExpression([
-				f.createModifier(ts.SyntaxKind.AsyncKeyword)], // TODO Optimize using async by detecting promises
-				undefined, undefined, undefined, _getResolverArgs(), undefined, f.createBlock(body))
+				)
+			);
 		}
+		// Add Last method
+		body.push(f.createReturnStatement(_createMethodCallExp(arr[len])));
+		let useAsync = len > 1; // TODO Optimize using async by detecting promises
+		// create method
+		return f.createFunctionExpression(
+			useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+			undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(body))
 	}
 	/** Create resolver call expression */
 	function _createMethodCallExp(method: MethodDescM) {
 		let vldId = _import(method);
-		return f.createCallExpression(
-			_getMethodCall(vldId, method), undefined,
-			[
-				f.createIdentifier('parent'),
-				f.createIdentifier('value'),
-				f.createIdentifier('ctx'),
-				f.createIdentifier('info')
-			]
+		return _callExpression(_getMethodCall(vldId, method), ['parent', 'args', 'ctx', 'info']);
+	}
+	/** Generate wrappers */
+	function _genWrappers(wrappers: MethodDescM[]) {
+		let body: ts.Statement[] = [];
+		let wLen = wrappers.length - 1;
+		// Add others if len > 2
+		let nextId = f.createIdentifier('next');
+		for (let i = wLen - 1; i >= 0; --i) {
+			let method = wrappers[i];
+			let methodId = f.createUniqueName('next');
+			body.push(
+				f.createFunctionDeclaration(
+					undefined, undefined, undefined, methodId, undefined, [], undefined,
+					f.createBlock([
+						f.createExpressionStatement(
+							f.createCallExpression(
+								_getMethodCall(_import(method), method), undefined,
+								[
+									f.createIdentifier('parent'),
+									f.createIdentifier('args'),
+									f.createIdentifier('ctx'),
+									f.createIdentifier('info'),
+									nextId
+								]
+							)
+						)
+					]))
+			);
+			nextId = methodId;
+		}
+		// Add last one
+		let method = wrappers[wLen];
+		body.push(
+			f.createExpressionStatement(
+				f.createCallExpression(
+					_getMethodCall(_import(method), method), undefined,
+					[
+						f.createIdentifier('parent'),
+						f.createIdentifier('args'),
+						f.createIdentifier('ctx'),
+						f.createIdentifier('info'),
+						nextId
+					]
+				)
+			)
 		)
+		// create method
+		return f.createFunctionExpression(
+			undefined, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info', 'next'), undefined, f.createBlock(body))
+	}
+	/** Create call expression */
+	function _callExpression(expr: ts.Expression, params: string[]) {
+		let args = [];
+		for (let i = 0, len = params.length; i < len; i++) {
+			args.push(f.createIdentifier(params[i]));
+		}
+		//return
+		return f.createCallExpression(expr, undefined, args);
 	}
 }
 

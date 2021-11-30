@@ -769,7 +769,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							switch (s.name) {
 								case 'ModelScalar': {
 									//* Scalar
-									_assertEntityNotFound(fileName, declaration, srcFile);
+									_assertEntityNotFound(fieldName, declaration, srcFile);
 									// JUST OVERRIDE WHEN SCALAR :)
 									let scalarEntity: Scalar = {
 										kind: Kind.SCALAR,
@@ -856,11 +856,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 									break;
 								}
 								case 'ResolverConfig': {
-									_assertEntityNotFound(fileName, declaration, srcFile);
 									let inputEntityName =
 										typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
 									if (inputEntityName == null)
 										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+									_assertEntityNotFound(inputEntityName, declaration, srcFile);
 									let obj = declaration.initializer;
 									if (obj == null)
 										throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
@@ -868,19 +868,20 @@ export function parse(files: readonly string[], program: ts.Program) {
 										throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
 									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
 										let property = properties[j];
-										if (!ts.isPropertyAssignment(property)) continue;
 										let propertyName = property.name?.getText() as keyof ResolverConfig<any>;
 										switch (propertyName) {
 											case "outputFields":
+												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
 												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
 													_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
 													srcFile, false, inputEntityName);
 												break;
 											case 'inputFields':
+												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
 												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
 													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
 												break;
-											case "BeforeInput": {
+											case "beforeInput": {
 												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
 												(entity.before ??= []).push({
 													name: propertyName,
@@ -889,7 +890,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 												});
 												break;
 											}
-											case "AfterInput": {
+											case "afterInput": {
 												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
 												(entity.after ??= []).push({
 													name: propertyName,
