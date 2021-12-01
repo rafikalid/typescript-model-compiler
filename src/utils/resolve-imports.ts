@@ -53,13 +53,13 @@ function _importTransform(
 			//* Import declaration
 			return f.updateImportDeclaration(
 				node, node.decorators, node.modifiers, node.importClause,
-				f.createStringLiteral(_resolvePath(node.moduleSpecifier))
+				f.createStringLiteral(_resolvePath(node.moduleSpecifier)), undefined
 			);
 		} else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
 			//* Export declaration
 			return f.updateExportDeclaration(
 				node, node.decorators, node.modifiers, node.isTypeOnly, node.exportClause,
-				f.createStringLiteral(_resolvePath(node.moduleSpecifier))
+				f.createStringLiteral(_resolvePath(node.moduleSpecifier)), undefined
 			);
 		} else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
 			//* Dynamic import

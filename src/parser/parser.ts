@@ -10,7 +10,8 @@ const parseYaml = Yaml.parse;
 //@ts-ignore
 import strMath from 'string-math';
 import bytes from 'bytes';
-import { DEFAULT_SCALARS, ResolverConfig } from "tt-model";
+import { DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
+import { MethodDescM, RootConfig } from "..";
 
 /**
  * Extract Model from typescript code
@@ -22,10 +23,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 	//* Literal objects had no with missing name like Literal objects
 	const LITERAL_OBJECTS: { node: InputObject | OutputObject, isInput: boolean | undefined, ref: Reference }[] = [];
 	/** Root wrappers: wrap root controller */
-	const rootWrappers: {
-		fileName: string,
-		name: string
-	}[] = [];
+	const rootConfig: RootConfig = {
+		before: [],
+		after: [],
+		wrappers: []
+	};
 	/** Helper entities */
 	const inputHelperEntities: Map<string, InputObject[]> = new Map();
 	const outputHelperEntities: Map<string, OutputObject[]> = new Map();
@@ -301,6 +303,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								fileName: fileName,
 								className: className,
 								name: entityName,
+								isAsync: _hasPromise(node as ts.MethodDeclaration),
 								isStatic: node.modifiers?.some(
 									n => n.kind === ts.SyntaxKind.StaticKeyword
 								) ?? false,
@@ -759,200 +762,241 @@ export function parse(files: readonly string[], program: ts.Program) {
 						if (
 							type &&
 							ts.isTypeReferenceNode(type) &&
-							type.typeArguments?.length === 1 &&
 							(s = typeChecker.getSymbolAtLocation(type.typeName))
 						) {
-							let typeArg = type.typeArguments[0];
-							let fieldName = typeArg.getText();
-							if (!ts.isTypeReferenceNode(typeArg))
-								throw `Unexpected Entity Name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
-							switch (s.name) {
-								case 'ModelScalar': {
-									//* Scalar
-									_assertEntityNotFound(fieldName, declaration, srcFile);
-									// JUST OVERRIDE WHEN SCALAR :)
-									let scalarEntity: Scalar = {
-										kind: Kind.SCALAR,
-										name: fieldName,
-										escapedName: escapeEntityName(fieldName),
-										deprecated: deprecated,
-										jsDoc: jsDoc,
-										parser: {
-											fileName: fileName,
-											className: nodeName,
-											isStatic: true,
-											name: undefined,
-											isClass: false
-										},
-										fileNames: [fileName]
-									};
-									INPUT_ENTITIES.set(fieldName, scalarEntity);
-									OUTPUT_ENTITIES.set(fieldName, scalarEntity);
-									break;
-								}
-								case 'UNION': {
-									// parse types
-									let typeNode = _cleanReference(typeArg);
-									if (typeNode == null)
-										throw `Wrong union reference "${_getNodeName(declaration, srcFile)}" at ${errorFile(srcFile, declaration)}`;
-									let unionName = _getNodeName(typeNode, srcFile); //_getUnionNameFromTypes(types);
-									let entity = INPUT_ENTITIES.get(unionName) as Union | undefined;
-									if (entity == null) {
-										if (entity = OUTPUT_ENTITIES.get(unionName) as Union | undefined)
-											throw `Duplicate entity "${unionName}" at ${errorFile(srcFile, declaration)
-											} and ${entity.fileNames.join(', ')}`;
-										entity = {
-											kind: Kind.UNION,
-											name: unionName,
+							if (type.typeArguments?.length === 1) {
+								let typeArg = type.typeArguments[0];
+								let fieldName = typeArg.getText();
+								if (!ts.isTypeReferenceNode(typeArg))
+									throw `Unexpected Entity Name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+								switch (s.name) {
+									case 'ModelScalar': {
+										//* Scalar
+										_assertEntityNotFound(fieldName, declaration, srcFile);
+										// JUST OVERRIDE WHEN SCALAR :)
+										let scalarEntity: Scalar = {
+											kind: Kind.SCALAR,
+											name: fieldName,
 											escapedName: escapeEntityName(fieldName),
 											deprecated: deprecated,
 											jsDoc: jsDoc,
-											types: [],
 											parser: {
 												fileName: fileName,
 												className: nodeName,
+												isAsync: false,
 												isStatic: true,
-												name: 'resolveType',
+												name: undefined,
 												isClass: false
 											},
 											fileNames: [fileName]
 										};
-										INPUT_ENTITIES.set(unionName, entity);
-										OUTPUT_ENTITIES.set(unionName, entity);
-									} else if (entity.kind != Kind.UNION || OUTPUT_ENTITIES.get(unionName) !== entity) {
-										throw `Could not create union for "${unionName}" at ${errorFile(srcFile, declaration)}. Already defined as "${Kind[entity.kind]}" at ${entity.fileNames.join(', ')}`;
-									} else if (entity.parser != null) {
-										throw `Union for "${unionName}" at ${errorFile(srcFile, declaration)} already defined at ${entity.fileNames.join(', ')}`;
-									} else {
-										entity.name = unionName;
-										entity.jsDoc.push(...jsDoc);
-										entity.deprecated ??= deprecated;
-										entity.fileNames.push(fileName);
-										entity.parser ??= {
-											fileName: fileName,
-											className: nodeName,
-											isStatic: true,
-											name: 'resolveType',
-											isClass: false
-										};
+										INPUT_ENTITIES.set(fieldName, scalarEntity);
+										OUTPUT_ENTITIES.set(fieldName, scalarEntity);
+										break;
 									}
-									// Add child entities
-									let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
-									for (let i = 0, len = types.length; i < len; ++i) {
-										let type = types[i];
-										let typeSymbol = type.symbol;
-										if (typeSymbol == null)
-											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
-										if (!type.isClassOrInterface())
-											throw `Union type "${typeChecker.typeToString(type)}" expected Interface or Class at ${errorFile(srcFile, declaration)}`;
-										let typeNode = typeSymbol.valueDeclaration ?? typeSymbol.declarations?.[0];
+									case 'UNION': {
+										// parse types
+										let typeNode = _cleanReference(typeArg);
 										if (typeNode == null)
-											throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
-										visitor.push(typeNode, type, entity, srcFile, undefined, undefined, isResolversImplementation);
-										entity.types.push({
-											kind: Kind.REF, name: typeSymbol.name, fileName
-										});
+											throw `Wrong union reference "${_getNodeName(declaration, srcFile)}" at ${errorFile(srcFile, declaration)}`;
+										let unionName = _getNodeName(typeNode, srcFile); //_getUnionNameFromTypes(types);
+										let entity = INPUT_ENTITIES.get(unionName) as Union | undefined;
+										if (entity == null) {
+											if (entity = OUTPUT_ENTITIES.get(unionName) as Union | undefined)
+												throw `Duplicate entity "${unionName}" at ${errorFile(srcFile, declaration)
+												} and ${entity.fileNames.join(', ')}`;
+											entity = {
+												kind: Kind.UNION,
+												name: unionName,
+												escapedName: escapeEntityName(fieldName),
+												deprecated: deprecated,
+												jsDoc: jsDoc,
+												types: [],
+												parser: {
+													fileName: fileName,
+													className: nodeName,
+													isStatic: true,
+													isAsync: false,
+													name: 'resolveType',
+													isClass: false
+												},
+												fileNames: [fileName]
+											};
+											INPUT_ENTITIES.set(unionName, entity);
+											OUTPUT_ENTITIES.set(unionName, entity);
+										} else if (entity.kind != Kind.UNION || OUTPUT_ENTITIES.get(unionName) !== entity) {
+											throw `Could not create union for "${unionName}" at ${errorFile(srcFile, declaration)}. Already defined as "${Kind[entity.kind]}" at ${entity.fileNames.join(', ')}`;
+										} else if (entity.parser != null) {
+											throw `Union for "${unionName}" at ${errorFile(srcFile, declaration)} already defined at ${entity.fileNames.join(', ')}`;
+										} else {
+											entity.name = unionName;
+											entity.jsDoc.push(...jsDoc);
+											entity.deprecated ??= deprecated;
+											entity.fileNames.push(fileName);
+											entity.parser ??= {
+												fileName: fileName,
+												className: nodeName,
+												isAsync: false,
+												isStatic: true,
+												name: 'resolveType',
+												isClass: false
+											};
+										}
+										// Add child entities
+										let types = _removePromiseAndNull(typeChecker.getTypeFromTypeNode(typeArg));
+										for (let i = 0, len = types.length; i < len; ++i) {
+											let type = types[i];
+											let typeSymbol = type.symbol;
+											if (typeSymbol == null)
+												throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
+											if (!type.isClassOrInterface())
+												throw `Union type "${typeChecker.typeToString(type)}" expected Interface or Class at ${errorFile(srcFile, declaration)}`;
+											let typeNode = typeSymbol.valueDeclaration ?? typeSymbol.declarations?.[0];
+											if (typeNode == null)
+												throw `Missing definition for union type "${typeChecker.typeToString(type)}" at ${errorFile(srcFile, declaration)}`;
+											visitor.push(typeNode, type, entity, srcFile, undefined, undefined, isResolversImplementation);
+											entity.types.push({
+												kind: Kind.REF, name: typeSymbol.name, fileName
+											});
+										}
+										break;
 									}
-									break;
-								}
-								case 'ResolverConfig': {
-									let inputEntityName =
-										typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
-									if (inputEntityName == null)
-										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
-									_assertEntityNotFound(inputEntityName, declaration, srcFile);
-									let obj = declaration.initializer;
-									if (obj == null)
-										throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
-									if (!ts.isObjectLiteralExpression(obj))
-										throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
-									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
-										let property = properties[j];
-										let propertyName = property.name?.getText() as keyof ResolverConfig<any>;
-										switch (propertyName) {
-											case "outputFields":
-												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
-												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
-													_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
-													srcFile, false, inputEntityName);
-												break;
-											case 'inputFields':
-												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
-												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
-													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
-												break;
-											case "beforeInput": {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.before ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											case "afterInput": {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.after ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											case "beforeOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.before ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											case "afterOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.after ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											case 'wrapInput': {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.wrappers ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											case "wrapOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.wrappers ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName
-												});
-												break;
-											}
-											default: {
-												let n: never = propertyName;
+									case 'ResolverConfig': {
+										let inputEntityName =
+											typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
+										if (inputEntityName == null)
+											throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+										_assertEntityNotFound(inputEntityName, declaration, srcFile);
+										let obj = declaration.initializer;
+										if (obj == null)
+											throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
+										if (!ts.isObjectLiteralExpression(obj))
+											throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
+										for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
+											let property = properties[j];
+											let propertyName = property.name?.getText() as keyof ResolverConfig<any>;
+											switch (propertyName) {
+												case "outputFields":
+													if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
+													visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
+														_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
+														srcFile, false, inputEntityName);
+													break;
+												case 'inputFields':
+													if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
+													visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
+														_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
+													break;
+												case "beforeInput": {
+													//
+													let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.before ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												case "afterInput": {
+													let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.after ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												case "beforeOutput": {
+													let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.before ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												case "afterOutput": {
+													let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.after ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												case 'wrapInput': {
+													let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.wrappers ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												case "wrapOutput": {
+													let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+													(entity.wrappers ??= []).push({
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property)
+													});
+													break;
+												}
+												default: {
+													let n: never = propertyName;
+												}
 											}
 										}
+										break;
 									}
-									break;
 								}
-								case 'rootWrappers': {
-									let obj = declaration.initializer;
-									if (obj == null)
-										throw `Missing wrapper method at ${errorFile(srcFile, declaration)}`;
-									if (!ts.isFunctionDeclaration(obj))
-										throw `Expected a function declaration to define the wrapper. Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
-									rootWrappers.push({
-										fileName: fileName,
-										name: declaration.name.getText()
-									});
-									break;
+							} else if (s.name === 'RootConfig') {
+								let obj = declaration.initializer;
+								if (obj == null)
+									throw `Missing wrapper method at ${errorFile(srcFile, declaration)}`;
+								if (!ts.isObjectLiteralExpression(obj))
+									throw `Expected an object expression to define the root configuration. Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
+								for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
+									let property = properties[j];
+									let propertyName = property.name?.getText() as keyof RootConfigTTModel;
+									switch (propertyName) {
+										case "after": {
+											rootConfig.after.push({
+												name: propertyName,
+												className: nodeName,
+												fileName: fileName,
+												isAsync: _hasPromise(property)
+											});
+											break;
+										}
+										case "before": {
+											rootConfig.before.push({
+												name: propertyName,
+												className: nodeName,
+												fileName: fileName,
+												isAsync: _hasPromise(property)
+											});
+											break;
+										}
+										case 'wrap': {
+											rootConfig.wrappers.push({
+												name: propertyName,
+												className: nodeName,
+												fileName: fileName,
+												isAsync: _hasPromise(property)
+											});
+											break;
+										}
+										default: {
+											let n: never = propertyName;
+										}
+									}
 								}
 							}
 						}
@@ -1053,7 +1097,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 	return {
 		input: INPUT_ENTITIES,
 		output: OUTPUT_ENTITIES,
-		rootWrappers,
+		rootConfig,
 		inputHelperEntities: _mergeEntityHelpers(inputHelperEntities),
 		outputHelperEntities: _mergeEntityHelpers(outputHelperEntities)
 	};
@@ -1167,6 +1211,36 @@ export function parse(files: readonly string[], program: ts.Program) {
 		}
 		names.sort((a, b) => a.localeCompare(b));
 		return names.join('|');
+	}
+	/** Check if method or function has a promise as return */
+	function _hasPromise(node: ts.SignatureDeclaration | ts.ObjectLiteralElementLike): boolean {
+		// Get method
+		if (ts.isObjectLiteralElementLike(node)) {
+			if (ts.isPropertyAssignment(node)) {
+				if (node.initializer != null && ts.isFunctionLike(node.initializer)) {
+					node = node.initializer;
+				} else {
+					throw `"${node.name.getText()} Expected method! at ${errorFile(node.getSourceFile(), node)}`;
+				}
+			} else if (!ts.isMethodDeclaration(node)) {
+				throw `Unexpected type "${ts.SyntaxKind[node.kind]}" for property "${node.name?.getText()} at ${errorFile(node.getSourceFile(), node)}`
+			}
+		}
+		// Get return type of signature
+		var sign = typeChecker.getSignatureFromDeclaration(node);
+		if (sign == null) throw `Fail to get method signature at ${errorFile(node.getSourceFile(), node)}`
+		var returnType = typeChecker.getNonNullableType(typeChecker.getReturnTypeOfSignature(sign));
+		let hasPromise = false;
+		if (returnType.isUnionOrIntersection()) {
+			for (let i = 0, types = returnType.types, len = types.length; i < len; ++i) {
+				let type = types[i];
+				if (type.symbol?.name === 'Promise') {
+					hasPromise = true;
+					break;
+				}
+			}
+		} else hasPromise = returnType.symbol?.name === 'Promise';
+		return hasPromise;
 	}
 }
 

@@ -19,7 +19,7 @@ export function toGraphQL(
 	{
 		input: rootInput,
 		output: rootOutput,
-		wrappers: rootWrappers
+		rootConfig: rootConfig
 	}: ReturnType<typeof format>,
 	pretty: boolean,
 	targetExtension: TargetExtension | undefined
@@ -27,6 +27,8 @@ export function toGraphQL(
 	type SeekNode = FormattedOutputNode | FormattedInputNode | FieldType | FormattedEnumMember | formattedOutputField | formattedInputField | Param;
 	/** srcFile path */
 	const srcFilePath = srcFile.fileName;
+	/** Create root wrappers */
+	const RootWrappersIdentifier = rootConfig.wrappers.length === 0 ? undefined : f.createUniqueName('wrap');
 	/** Validation schema declarations by the API */
 	const inputDeclarations: ts.VariableDeclaration[] = [];
 	/** Graphql types declaration */
@@ -84,21 +86,17 @@ export function toGraphQL(
 				if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
 				if (field.jsDoc) fieldConf.description = field.jsDoc;
 				if (field.method) {
-					let methodVar = _import(field.method);
-					fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, field.method), field.param);
+					fieldConf.resolve = _wrapResolver(field.method, field.param);
 					if (field.param != null && field.param.type != null) {
 						fieldConf.args = _fieldArg(field.param);
 					}
 				} else if (field.alias) {
 					fieldConf.resolve = _resolveOutputAlias(field.name);
 				}
-				circleStatementsBlock.push(
-					f.createExpressionStatement(f.createBinaryExpression(
-						f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
-						f.createToken(ts.SyntaxKind.EqualsToken),
-						_serializeObject(fieldConf)
-					))
-				);
+				circleStatementsBlock.push(_affect(
+					f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
+					_serializeObject(fieldConf)
+				));
 				break;
 			}
 			case Kind.INPUT_FIELD: {
@@ -110,13 +108,10 @@ export function toGraphQL(
 				// Other info
 				if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
 				if (field.jsDoc) fieldConf.description = field.jsDoc;
-				circleStatementsBlock.push(
-					f.createExpressionStatement(f.createBinaryExpression(
-						f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
-						f.createToken(ts.SyntaxKind.EqualsToken),
-						_serializeObject(fieldConf)
-					))
-				);
+				circleStatementsBlock.push(_affect(
+					f.createPropertyAccessExpression(item.varId, field.alias ?? field.name),
+					_serializeObject(fieldConf)
+				));
 				break;
 			}
 			case Kind.UNION: {
@@ -195,6 +190,10 @@ export function toGraphQL(
 			_serializeObject(gqlSchema)
 		])
 	));
+	//* Add root wrappers
+	if (RootWrappersIdentifier != null) {
+		statementsBlock.push(_genWrappers(rootConfig.wrappers, RootWrappersIdentifier));
+	}
 	//* Return
 	return {
 		imports,
@@ -228,7 +227,7 @@ export function toGraphQL(
 		const specifiers: ts.ImportSpecifier[] = [];
 		map.forEach((id, name) => {
 			specifiers.push(
-				f.createImportSpecifier(f.createIdentifier(name), id)
+				f.createImportSpecifier(false, f.createIdentifier(name), id)
 			);
 		});
 		return f.createImportDeclaration(
@@ -267,7 +266,7 @@ export function toGraphQL(
 				if (isClass) {
 					let isp = f.createUniqueName(className);
 					specifiers.push(
-						f.createImportSpecifier(f.createIdentifier(className), isp)
+						f.createImportSpecifier(false, f.createIdentifier(className), isp)
 					);
 					// Create var
 					importCreateObjects.push(
@@ -278,7 +277,7 @@ export function toGraphQL(
 					);
 				} else {
 					specifiers.push(
-						f.createImportSpecifier(f.createIdentifier(className), varName)
+						f.createImportSpecifier(false, f.createIdentifier(className), varName)
 					);
 				}
 			});
@@ -448,8 +447,7 @@ export function toGraphQL(
 					if (entity.deprecated) fieldConf.deprecationReason = entity.deprecated;
 					if (entity.jsDoc) fieldConf.description = entity.jsDoc;
 					if (entity.method) {
-						let methodVar = _import(entity.method);
-						fieldConf.resolve = _wrapResolver(_getMethodCall(methodVar, entity.method), entity.param);
+						fieldConf.resolve = _wrapResolver(entity.method, entity.param);
 						let paramId = childrenData[1] as ts.Expression | undefined; // "undefined" means has no param
 						if (paramId != null) fieldConf.args = paramId;
 					} else if (entity.alias) {
@@ -755,7 +753,7 @@ export function toGraphQL(
 	/** Resolve output alias */
 	function _resolveOutputAlias(name: string) {
 		return f.createFunctionExpression(
-			undefined, undefined, undefined, undefined, _getResolverArgs('parent'), undefined, f.createBlock([
+			undefined, undefined, undefined, undefined, _getResolverArgs(['parent']), undefined, f.createBlock([
 				f.createReturnStatement(
 					f.createPropertyAccessExpression(
 						f.createIdentifier('parent'), name
@@ -828,7 +826,9 @@ export function toGraphQL(
 	//* Validate input data
 	/** Add resolver */
 	type SeekVldNode = FormattedInputNode | FieldType | FormattedEnumMember | formattedInputField;
-	function _wrapResolver(resolveCb: ts.Expression, param: Param | undefined): ts.Expression {
+	function _wrapResolver(method: MethodDescM, param: Param | undefined): ts.Expression {
+		let resolveCb = _getMethodCall(_import(method), method);
+		let useAsync = false;
 		seekVldCircle.clear();
 		// mapVldEntityVar.clear();
 		// circlesVldQueue.length = 0;
@@ -842,32 +842,60 @@ export function toGraphQL(
 		}
 		// Create wrapper
 		let body: ts.Statement[] = [];
-		let useAsync = false;
-		// Validate input data
-		if (result != null) {
-			body.push(
-				f.createExpressionStatement(
-					f.createBinaryExpression(
-						f.createIdentifier('args'),
-						f.createToken(ts.SyntaxKind.EqualsToken),
-						f.createAwaitExpression( // TODO check if add await expression or not (to improve performance)
-							_callExpression(result, ['parent', 'args', 'ctx', 'info'])
-						)
-					)
-				)
-			);
-			useAsync = true; // Improve this by check if really needed async!
+		//* Add before
+		if (rootConfig.before.length > 0) {
+			for (let i = 0, arr = rootConfig.before, len = arr.length; i < len; ++i) {
+				let method = arr[i];
+				body.push(_affect('args', _callMethod(method)));
+				if (method.isAsync) useAsync = true;
+			}
 		}
-		// Return resolver value
-		body.push(
-			f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
-			f.createReturnStatement(_callExpression(resolveCb, ['parent', 'args', 'ctx', 'info']))
-		);
+		//* Validate input data
+		if (result != null) {
+			body.push(_affect('args',
+				f.createAwaitExpression(
+					_callExpression(inputValidationWrapperId, [result, 'parent', 'args', 'ctx', 'info'])
+				)
+			));
+			useAsync = true; // Validation is an async operation
+		}
+		//* Return resolver value
+		if (rootConfig.after.length === 0) {
+			body.push(
+				f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
+				f.createReturnStatement(_callExpression(resolveCb, ['parent', 'args', 'ctx', 'info']))
+			);
+		} else {
+			let expr: ts.CallExpression | ts.AwaitExpression = _callExpression(resolveCb, ['parent', 'args', 'ctx', 'info']);
+			if (method.isAsync) {
+				useAsync = true;
+				expr = f.createAwaitExpression(expr);
+			}
+			body.push(
+				f.createExpressionStatement(f.createIdentifier('//@ts-ignore')),
+				_affect('args', expr));
+			//* Add "rootConfig.after"
+			for (let i = 0, arr = rootConfig.after, len = arr.length; i < len; ++i) {
+				let method = arr[i];
+				body.push(_affect('args', _callMethod(method)));
+				if (method.isAsync) useAsync = true;
+			}
+			body.push(f.createReturnStatement(f.createIdentifier('args')));
+		}
 
-		// TODO implement resolver wrappers
-		return f.createFunctionExpression(
+		var fx = f.createFunctionExpression(
 			useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined
-			, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(body, pretty));
+			, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock(body, pretty));
+		//* Add wrappers
+		if (RootWrappersIdentifier != null) {
+			fx = f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock([
+				f.createReturnStatement(
+					_callExpression(RootWrappersIdentifier, ['parent', 'args', 'ctx', 'info', fx])
+				)
+			], pretty))
+		}
+		//* Return
+		return fx;
 	}
 	/** Seek validation down */
 	function _seekValidationDown(node: SeekVldNode, isInput: boolean, parentNode: SeekVldNode | undefined): SeekVldNode[] | { nodes: SeekVldNode[], isInput: boolean } | undefined | false {
@@ -933,13 +961,16 @@ export function toGraphQL(
 					}
 				}
 				// Create object
+				let beforeConf = _concatBeforeAfter(node.before);
+				let afterConf = _concatBeforeAfter(node.after);
 				let entityConf: { [k in keyof InputObject]: any } = {
 					kind: ModelKind.INPUT_OBJECT,
 					name: node.name,
 					fields: fieldsArrExpression,
-					before: node.before == null ? undefined : _concatBeforeAfter(node.before),
-					after: node.after == null ? undefined : _concatBeforeAfter(node.after),
-					//TODO change wrappers to "wrap"
+					before: beforeConf.expr,
+					beforeAsync: beforeConf.isAsync,
+					after: afterConf.expr,
+					afterAsync: afterConf.isAsync,
 					wrap: node.wrappers == null ? undefined : _genWrappers(node.wrappers)
 				};
 				let vName = varId = f.createUniqueName(node.escapedName);
@@ -976,7 +1007,7 @@ export function toGraphQL(
 							f.createReturnStatement(_callExpression(_getMethodCall(vldId, node.method), ['parent', 'args', 'ctx', 'info']))
 						);
 					} else if (pipeInputBody.length > 0) {
-						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('value')));
+						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('args')));
 					}
 					// Conf
 					let conf: { [k in keyof InputField]: any } = {
@@ -984,7 +1015,8 @@ export function toGraphQL(
 						alias: node.alias ?? node.name,
 						required: node.required,
 						type: varId === false ? undefined : varId,
-						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(pipeInputBody))
+						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock(pipeInputBody)),
+						pipeAsync: node.method?.isAsync ?? false
 					};
 					varId = _serializeObject(conf);
 				}
@@ -1025,7 +1057,7 @@ export function toGraphQL(
 	}
 
 	/** Resolver args */
-	function _getResolverArgs(...args: string[]) {
+	function _getResolverArgs(args: string[]) {
 		var result: ts.ParameterDeclaration[] = [];
 		for (let i = 0, len = args.length; i < len; i++) {
 			result.push(
@@ -1037,28 +1069,31 @@ export function toGraphQL(
 		return result;
 	}
 	/** Concat before and after */
-	function _concatBeforeAfter(arr: MethodDescM[]): any {
+	function _concatBeforeAfter(arr: MethodDescM[] | undefined): { expr: ts.Expression | undefined, isAsync: boolean } {
+		if (arr == null) return { expr: undefined, isAsync: false };
 		let body: ts.Statement[] = [];
 		// Add first methods
 		let len = arr.length - 1;
+		let useAsync = false;
 		for (let i = 0; i < len; ++i) {
-			body.push(
-				f.createExpressionStatement(
-					f.createBinaryExpression(
-						f.createIdentifier('args'),
-						f.createToken(ts.SyntaxKind.EqualsToken),
-						f.createAwaitExpression(_createMethodCallExp(arr[i])) //TODO optimize using async by detecting promises
-					)
-				)
-			);
+			let method = arr[i];
+			let expr: ts.Expression = _createMethodCallExp(method);
+			if (method.isAsync) {
+				expr = f.createAwaitExpression(expr);
+				useAsync = true;
+			}
+			body.push(_affect('args', expr));
 		}
 		// Add Last method
-		body.push(f.createReturnStatement(_createMethodCallExp(arr[len])));
-		let useAsync = len > 1; // TODO Optimize using async by detecting promises
+		let method = arr[len];
+		body.push(f.createReturnStatement(_createMethodCallExp(method)));
 		// create method
-		return f.createFunctionExpression(
-			useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
-			undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info'), undefined, f.createBlock(body))
+		return {
+			expr: f.createFunctionExpression(
+				useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+				undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock(body)),
+			isAsync: useAsync || method.isAsync
+		};
 	}
 	/** Create resolver call expression */
 	function _createMethodCallExp(method: MethodDescM) {
@@ -1066,7 +1101,9 @@ export function toGraphQL(
 		return _callExpression(_getMethodCall(vldId, method), ['parent', 'args', 'ctx', 'info']);
 	}
 	/** Generate wrappers */
-	function _genWrappers(wrappers: MethodDescM[]) {
+	function _genWrappers(wrappers: MethodDescM[]): ts.FunctionExpression;
+	function _genWrappers(wrappers: MethodDescM[], name: ts.Identifier | string): ts.FunctionDeclaration;
+	function _genWrappers(wrappers: MethodDescM[], name?: ts.Identifier | string | undefined) {
 		let body: ts.Statement[] = [];
 		let wLen = wrappers.length - 1;
 		// Add others if len > 2
@@ -1111,17 +1148,41 @@ export function toGraphQL(
 			)
 		)
 		// create method
-		return f.createFunctionExpression(
-			undefined, undefined, undefined, undefined, _getResolverArgs('parent', 'args', 'ctx', 'info', 'next'), undefined, f.createBlock(body))
+		let params = _getResolverArgs(['parent', 'args', 'ctx', 'info', 'next']);
+		if (name == null)
+			return f.createFunctionExpression(
+				undefined, undefined, undefined, undefined, params, undefined, f.createBlock(body));
+		else return f.createFunctionDeclaration(undefined, undefined, undefined, name, undefined, params, undefined, f.createBlock(body));
 	}
 	/** Create call expression */
-	function _callExpression(expr: ts.Expression, params: string[]) {
+	function _callExpression(expr: ts.Expression, params: (string | ts.Expression)[]) {
 		let args = [];
 		for (let i = 0, len = params.length; i < len; i++) {
-			args.push(f.createIdentifier(params[i]));
+			let param = params[i];
+			if (typeof param === 'string')
+				args.push(f.createIdentifier(param));
+			else
+				args.push(param);
 		}
 		//return
 		return f.createCallExpression(expr, undefined, args);
+	}
+	/** Affect expression */
+	function _affect(varname: string | ts.Expression, value: ts.Expression) {
+		if (typeof varname === 'string') varname = f.createIdentifier(varname);
+		return f.createExpressionStatement(
+			f.createBinaryExpression(
+				varname,
+				f.createToken(ts.SyntaxKind.EqualsToken),
+				value
+			)
+		)
+	}
+	/** Add method expression expression */
+	function _callMethod(method: MethodDescM, args = ['parent', 'args', 'ctx', 'info']) {
+		let expr: ts.CallExpression | ts.AwaitExpression = _callExpression(_getMethodCall(_import(method), method), args);
+		if (method.isAsync) expr = f.createAwaitExpression(expr);
+		return expr;
 	}
 }
 

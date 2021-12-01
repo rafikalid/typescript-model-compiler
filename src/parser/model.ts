@@ -155,6 +155,8 @@ export interface MethodDescM {
 	className: string;
 	/** Method name */
 	name: string | undefined;
+	/** If this method is async (has promise) */
+	isAsync: boolean
 }
 /** Method descriptor */
 export interface MethodDescriptor extends MethodDescM {
@@ -264,4 +266,12 @@ export type FieldType = List | Reference;
 export interface Param extends _Node {
 	kind: Kind.PARAM;
 	type: Reference | undefined;
+}
+
+
+/** Root config interface */
+export interface RootConfig {
+	before: MethodDescM[];
+	after: MethodDescM[];
+	wrappers: MethodDescM[];
 }

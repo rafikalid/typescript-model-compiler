@@ -13,7 +13,7 @@ export function format(
 	return {
 		input: _resolveEntities(root.input, root.inputHelperEntities),
 		output: _resolveEntities(root.output, root.outputHelperEntities),
-		wrappers: root.rootWrappers
+		rootConfig: root.rootConfig
 	};
 }
 
