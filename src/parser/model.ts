@@ -201,23 +201,23 @@ export interface Union extends _Node {
 /** Assert options */
 export interface AssertOptions {
 	/** Min value, arr.length or string.length */
-	min?: number;
+	min?: string;
 	/** Max value, arr.length or string.length */
-	max?: number;
+	max?: string;
 	/** less than value, arr.length or string.length */
-	lt?: number;
+	lt?: string;
 	/** greater than value, arr.length or string.length */
-	gt?: number;
+	gt?: string;
 	/** less than or equals value, arr.length or string.length */
-	lte?: number;
+	lte?: string;
 	/** greater than or equals value, arr.length or string.length */
-	gte?: number;
+	gte?: string;
 	/** Value equals */
-	eq?: number | string;
+	eq?: string;
 	/** Value not equals */
-	ne?: number | string;
+	ne?: string;
 	/** arr.length or string.length */
-	length?: number;
+	length?: string;
 	/** Regular expression */
 	regex?: RegExp;
 }

@@ -15,7 +15,7 @@ export function compileAsserts(
 	type: FieldType,
 	factory: ts.NodeFactory,
 	PRETTY: boolean
-): ts.Statement[] | undefined {
+): ts.FunctionExpression | undefined {
 	// Arr
 	const numberChecks: ts.Statement[] = [];
 	const elseChecks: ts.Statement[] = [
@@ -35,7 +35,7 @@ export function compileAsserts(
 		),
 	];
 	// Min value
-	var v: string | number | undefined = asserts.min ?? asserts.gte;
+	var v: string | undefined = asserts.min ?? asserts.gte;
 	if (v != null) {
 		numberChecks.push(
 			_ifThrow(factory, 'value', ts.SyntaxKind.LessThanToken, v, `${name} >= ${v}`)
@@ -136,24 +136,32 @@ export function compileAsserts(
 	// return
 	if (numberChecks.length === 0 && elseChecks.length === 1) return undefined;
 	else
-		return [
-			factory.createIfStatement(
-				// If is Number
-				factory.createBinaryExpression(
-					factory.createTypeOfExpression(
-						factory.createIdentifier('value')
+		return factory.createFunctionExpression(
+			undefined, undefined, undefined, undefined,
+			[
+				factory.createParameterDeclaration(undefined, undefined, undefined,
+					factory.createIdentifier('value'),
+					undefined, factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), undefined),
+			]
+			, undefined, factory.createBlock([
+				factory.createIfStatement(
+					// If is Number
+					factory.createBinaryExpression(
+						factory.createTypeOfExpression(
+							factory.createIdentifier('value')
+						),
+						factory.createToken(
+							ts.SyntaxKind.EqualsEqualsEqualsToken
+						),
+						factory.createStringLiteral('number')
 					),
-					factory.createToken(
-						ts.SyntaxKind.EqualsEqualsEqualsToken
-					),
-					factory.createStringLiteral('number')
+					// If true
+					factory.createBlock(numberChecks, PRETTY),
+					// Else
+					factory.createBlock(elseChecks, PRETTY)
 				),
-				// If true
-				factory.createBlock(numberChecks, PRETTY),
-				// Else
-				factory.createBlock(elseChecks, PRETTY)
-			),
-		];
+			])
+		);
 	// return factory.createFunctionExpression(
 	// 	undefined, undefined, undefined, undefined,
 	// 	// Argument
@@ -199,16 +207,17 @@ function _ifThrow(
 	factory: ts.NodeFactory,
 	identifier: string,
 	cmpToken: Tkind,
-	cmpValue: string | number,
+	cmpValue: string,
 	errMsg: string
 ) {
 	return factory.createIfStatement(
 		factory.createBinaryExpression(
 			factory.createIdentifier(identifier),
 			factory.createToken(cmpToken),
-			typeof cmpValue === 'number'
-				? factory.createNumericLiteral(cmpValue)
-				: factory.createStringLiteral(cmpValue)
+			factory.createIdentifier(cmpValue)
+			// typeof cmpValue === 'number'
+			// 	? factory.createNumericLiteral(cmpValue)
+			// 	: factory.createStringLiteral(cmpValue)
 		),
 		factory.createThrowStatement(
 			factory.createNewExpression(

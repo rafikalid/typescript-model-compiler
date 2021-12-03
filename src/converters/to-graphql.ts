@@ -994,28 +994,18 @@ export function toGraphQL(
 					node.method == null
 				) { }
 				else {
-					// Validation: Before
-					let pipeInputBody: ts.Statement[] = [];
-					// Asserts
-					if (node.asserts != null) {
-						let expr = compileAsserts(node.name, node.asserts, node.type, f, pretty);
-						if (expr != null) pipeInputBody.push(...expr);
-					}
-					if (node.method != null) {
-						let vldId = _import(node.method);
-						pipeInputBody.push(
-							f.createReturnStatement(_callExpression(_getMethodCall(vldId, node.method), ['parent', 'args', 'ctx', 'info']))
-						);
-					} else if (pipeInputBody.length > 0) {
-						pipeInputBody.push(f.createReturnStatement(f.createIdentifier('args')));
-					}
 					// Conf
 					let conf: { [k in keyof InputField]: any } = {
 						name: node.name,
 						alias: node.alias ?? node.name,
 						required: node.required,
 						type: varId === false ? undefined : varId,
-						pipe: pipeInputBody.length === 0 ? undefined : f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock(pipeInputBody)),
+						assert: node.asserts == null ? undefined : compileAsserts(node.name, node.asserts, node.type, f, pretty),
+						pipe: node.method == null ?
+							undefined :
+							f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock([
+								f.createReturnStatement(_callExpression(_getMethodCall(_import(node.method), node.method), ['parent', 'args', 'ctx', 'info']))
+							])),
 						pipeAsync: node.method?.isAsync ?? false
 					};
 					varId = _serializeObject(conf);

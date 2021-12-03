@@ -8,8 +8,6 @@ import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
 const parseYaml = Yaml.parse;
 //@ts-ignore
-import strMath from 'string-math';
-import bytes from 'bytes';
 import { DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
 import { MethodDescM, RootConfig } from "..";
 
@@ -119,14 +117,14 @@ export function parse(files: readonly string[], program: ts.Program) {
 							if (Array.isArray(tag.comment)) {
 								defaultValue = (tag.comment[0] as ts.JSDocText)
 									.text.trim();
-								if (defaultValue === 'true') defaultValue = true;
-								else if (defaultValue === "false") defaultValue = false;
-								else {
-									try {
-										// If fail to convert to number, keep it string
-										defaultValue = _parseStringValue(defaultValue);
-									} catch (error: any) { }
-								}
+								// if (defaultValue === 'true') defaultValue = true;
+								// else if (defaultValue === "false") defaultValue = false;
+								// else {
+								// 	try {
+								// 		// If fail to convert to number, keep it string
+								// 		defaultValue = _parseStringValue(defaultValue);
+								// 	} catch (error: any) { }
+								// }
 							}
 							break;
 						case 'input':
@@ -1283,34 +1281,35 @@ const ASSERT_KEYS_TMP: { [k in keyof AssertOptions]-?: 1 } = {
 const ASSERT_KEYS = new Set(Object.keys(ASSERT_KEYS_TMP));
 
 /** Evaluate expression */
-function _evaluateString(str: string) {
+function _evaluateString(str: string): Record<string, string> {
 	let obj = parseYaml(str);
 	for (let k in obj) {
 		if (!ASSERT_KEYS.has(k)) {
 			if (k.includes(':')) throw `Missing space after symbol ":" on: "${k}"`;
 			throw `Unknown assert's key "${k}"`;
 		}
-		let v = obj[k];
-		if (typeof v === 'number') { }
-		else if (typeof v === 'string')
-			obj[k] = _parseStringValue(v);
-		else throw 0;
+		if (typeof obj[k] !== 'string') obj[k] = String(obj[k]);
+		// let v = obj[k];
+		// if (typeof v === 'number') { }
+		// else if (typeof v === 'string')
+		// 	obj[k] = _parseStringValue(v);
+		// else throw 0;
 	}
 	return obj;
 }
 
-function _parseStringValue(v: string): number {
-	v = v.trim();
-	var result: number;
-	// Check for bytes
-	let b = /(.*?)([kmgtp]?b)$/i.exec(v);
-	if (b == null) {
-		result = strMath(v)
-	} else {
-		result = bytes(strMath(b[1]) + b[2]);
-	}
-	return result;
-}
+// function _parseStringValue(v: string): number {
+// 	v = v.trim();
+// 	var result: number;
+// 	// Check for bytes
+// 	let b = /(.*?)([kmgtp]?b)$/i.exec(v);
+// 	if (b == null) {
+// 		result = strMath(v)
+// 	} else {
+// 		result = bytes(strMath(b[1]) + b[2]);
+// 	}
+// 	return result;
+// }
 
 /** Check for export keyword on a node */
 function _hasNtExport(node: ts.Node, srcFile: ts.SourceFile) {
