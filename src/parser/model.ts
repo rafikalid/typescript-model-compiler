@@ -101,6 +101,8 @@ export interface OutputObject extends _Node {
 	wrappers: MethodDescM[] | undefined
 	before: MethodDescM[] | undefined
 	after: MethodDescM[] | undefined
+	/** Owned fields count */
+	ownedFieldsCount: number
 }
 
 /** Input Object  */

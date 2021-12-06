@@ -1,4 +1,4 @@
-import { FormattedEnum, FormattedEnumMember, formattedInputField, FormattedInputNode, FormattedNode, formattedOutputField, FormattedOutputNode } from './formatted-model';
+import { FormattedEnum, FormattedEnumMember, formattedInputField, FormattedInputNode, FormattedInputObject, FormattedNode, formattedOutputField, FormattedOutputNode } from './formatted-model';
 import { parse } from './parser';
 import { InputNode, OutputNode, InputObject, OutputObject, InputField } from './model';
 import {
@@ -50,6 +50,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					jsDoc: _compileJsDoc(node.jsDoc),
 					deprecated: node.deprecated
 				}
+				_sortFields(entity.fields, node);
 				result.set(nodeName, entity);
 				break;
 			}
@@ -65,6 +66,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					jsDoc: _compileJsDoc(node.jsDoc),
 					deprecated: node.deprecated
 				}
+				_sortFields(entity.fields, node);
 				result.set(nodeName, entity);
 				break;
 			}
@@ -144,6 +146,23 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 			result.push(formattedField);
 		});
 		return result;
+	}
+	/** Sort fields */
+	function _sortFields(fields: formattedOutputField[] | formattedInputField[], node: OutputObject | InputObject) {
+		if (node.inherit != null) {
+			let inherit = node.inherit;
+			fields.sort(function (a, b) {
+				if (a.className === b.className)
+					return a.idx - b.idx;
+				else if (a.className != null && b.className != null)
+					return inherit.indexOf(b.className) - inherit.indexOf(a.className);
+				else return 0;
+			});
+		}
+		else
+			fields.sort(function (a, b) {
+				return a.idx - b.idx;
+			});
 	}
 }
 

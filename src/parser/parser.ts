@@ -240,7 +240,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 								jsDoc: jsDoc,
 								wrappers: undefined,
 								before: undefined,
-								after: undefined
+								after: undefined,
+								ownedFieldsCount: 0
 							};
 							if (isImplementation) {
 								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
@@ -323,7 +324,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								name: entityName,
 								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
 								alias: fieldAlias,
-								idx: 0, // TODO Fix idx
+								idx: pDesc.ownedFieldsCount++,
 								className: className,
 								defaultValue: defaultValue,
 								type: undefined,
@@ -340,7 +341,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								kind: Kind.OUTPUT_FIELD,
 								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
 								alias: fieldAlias,
-								idx: 0, // TODO Fix idx
+								idx: pDesc.ownedFieldsCount++,
 								className: className,
 								defaultValue: defaultValue,
 								type: undefined,
@@ -730,7 +731,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 							jsDoc: jsDoc,
 							wrappers: undefined,
 							before: undefined,
-							after: undefined
+							after: undefined,
+							ownedFieldsCount: 0
 						};
 						let typeRef: Reference = {
 							kind: Kind.REF,
@@ -1185,7 +1187,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 				jsDoc: jsDoc?.slice(0) ?? [],
 				wrappers: undefined,
 				before: undefined,
-				after: undefined
+				after: undefined,
+				ownedFieldsCount: 0
 			};
 			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}
