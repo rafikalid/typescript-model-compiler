@@ -1078,6 +1078,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 			}
 			nmSet.add(escName);
 		}
+		//* List full inheritance list
+		if (entity.kind === Kind.OUTPUT_OBJECT) _adjustInheritance(entity, OUTPUT_ENTITIES);
 	});
 	INPUT_ENTITIES.forEach((entity) => {
 		let escName = entity.escapedName;
@@ -1092,6 +1094,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 			}
 			nmSet.add(escName);
 		}
+		//* List full inheritance list
+		if (entity.kind === Kind.INPUT_OBJECT) _adjustInheritance(entity, INPUT_ENTITIES);
 	});
 	//* Return
 	return {
@@ -1374,4 +1378,21 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 /** Escape entity name */
 export function escapeEntityName(name: string) {
 	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_');
+}
+
+/** Adjust inheritance list */
+function _adjustInheritance(entity: InputObject | OutputObject, mp: Map<string, InputNode | OutputObject>) {
+	if (entity.inherit != null) {
+		for (let i = 0, lst = entity.inherit; i < lst.length; i++) {
+			let clz = lst[i];
+			let e = mp.get(clz);
+			let l = (e as InputObject | undefined)?.inherit;
+			if (l != null) {
+				for (let j = 0, len = l.length; j < len; ++j) {
+					let c = l[j];
+					if (lst.includes(c) === false) lst.push(c);
+				}
+			}
+		}
+	}
 }
