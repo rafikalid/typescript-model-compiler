@@ -137,10 +137,10 @@ export class Compiler {
 			let { files, patterns, resolvedFiles } = patternItems[i];
 			//* Parse resolved files
 			let root = ParseModelFrom(resolvedFiles, program);
-			console.log('===ROOT===\n', printTree(root, '\t'));
+			// console.log('===ROOT===\n', printTree(root, '\t'));
 			//* Format data
 			let formatted = formatModel(root);
-			console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
+			// console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
 			//* Add to target files
 			for (let j = 0, jLen = files.length; j < jLen; ++j) {
 				let { srcFile, node: targetNode, type: methodName } = files[j];
