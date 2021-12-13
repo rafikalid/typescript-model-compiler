@@ -121,6 +121,7 @@ export function toGraphQL(
 				for (let i = 0, refs = union.types, len = refs.length; i < len; ++i) {
 					let ref = refs[i];
 					let refEntity = isInput ? rootOutput.get(ref.name) : rootOutput.get(ref.name);
+					if (refEntity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${ref.name}" using union reference at ${ref.fileName}`;
 					types.push(mapEntityVar.get(refEntity!.escapedName)!);
 				}
 				circleStatementsBlock.push(
@@ -596,7 +597,8 @@ export function toGraphQL(
 				varId = childrenData[0]; // "undefined" means has circular to parents
 				if (varId == null) {
 					let refEntity = isInput === true ? rootInput.get(entity.name) : rootOutput.get(entity.name);
-					varId = mapEntityVar.get(refEntity!.escapedName);
+					if (refEntity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${entity.name}" using reference at ${entity.fileName}`;
+					varId = mapEntityVar.get(refEntity.escapedName);
 				}
 				break;
 			}
@@ -1028,7 +1030,8 @@ export function toGraphQL(
 				varId = childrenData[0]; // "undefined" means has circular to parents
 				if (varId == null) {
 					let refEntity = rootInput.get(node.name);
-					varId = mapVldEntityVar.get(refEntity!.escapedName);
+					if (refEntity == null) throw `Missing entity: ${node.name}`;
+					varId = mapVldEntityVar.get(refEntity.escapedName);
 				}
 				break;
 			}

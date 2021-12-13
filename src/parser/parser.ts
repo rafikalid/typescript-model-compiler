@@ -11,6 +11,8 @@ const parseYaml = Yaml.parse;
 import { DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
 import { MethodDescM, RootConfig } from "..";
 
+const IS_OF_TYPE_NULL = ts.TypeFlags.Undefined | ts.TypeFlags.Null;
+
 /**
  * Extract Model from typescript code
  */
@@ -325,11 +327,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 					let fields = pDesc.fields;
 					let field = fields.get(entityName);
 					if (field == null) {
+						//* Add property
 						if (isInput) {
 							let p: Omit<InputField, 'type'> & { type: undefined } = {
 								kind: Kind.INPUT_FIELD,
 								name: entityName,
-								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
+								required: _isRequired(nodeType),
 								alias: fieldAlias,
 								idx: pDesc.ownedFieldsCount++,
 								className: className,
@@ -346,7 +349,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let p: Omit<OutputField, 'type'> & { type: undefined } = {
 								name: entityName,
 								kind: Kind.OUTPUT_FIELD,
-								required: (nodeType.flags & ts.TypeFlags.Undefined) === 0,
+								required: _isRequired(nodeType),
 								alias: fieldAlias,
 								idx: pDesc.ownedFieldsCount++,
 								className: className,
@@ -1175,6 +1178,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 				result = _cleanReference(node.typeArguments[0]);
 			else result = node;
 		} else {
+			let tx = _getNodeName(node, node.getSourceFile())
+			if (tx.includes('null'))
+				console.log('=================+>' + tx)
 			result = node;
 		}
 		return result;
@@ -1255,6 +1261,36 @@ export function parse(files: readonly string[], program: ts.Program) {
 			}
 		} else hasPromise = returnType.symbol?.name === 'Promise';
 		return hasPromise;
+	}
+	/** Check if field is required */
+	function _isRequired(nodeType: ts.Type): boolean {
+		//* Basic check
+		let required = true;
+		if (nodeType.flags & IS_OF_TYPE_NULL) required = false;
+		else {
+			let t = typeChecker.getNullableType(nodeType, nodeType.flags);
+			if (t.flags & IS_OF_TYPE_NULL) required = false;
+			else if (t.isUnion()) {
+				required = t.types.every(tt => (tt.flags & IS_OF_TYPE_NULL) === 0);
+			}
+		}
+		//* Check promises
+		if (required && nodeType.isUnion()) {
+			let queue: ts.Type[] = [nodeType];
+			while (queue.length > 0) {
+				let type = queue.pop()!;
+				if (type.flags & IS_OF_TYPE_NULL) { required = false; break; }
+				else if (type.isUnion()) {
+					for (let i = 0, types = type.types, len = types.length; i < len; ++i) {
+						queue.push(types[i]);
+					}
+				} else if (type.symbol?.name === 'Promise') {
+					let tp = (type as ts.TypeReference).typeArguments?.[0];
+					if (tp != null) queue.push(tp);
+				}
+			}
+		}
+		return required;
 	}
 }
 
