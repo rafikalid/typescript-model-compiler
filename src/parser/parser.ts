@@ -64,6 +64,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 			let fieldAlias: string | undefined;
 			let jsDocTags = ts.getJSDocTags(node);
 			let jsDoc: string[] = nodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
+			/** Do order fields by name */
+			let orderByName: boolean | undefined;
 			//  -?? [
 			// 	(
 			// 		node
@@ -140,6 +142,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 						case 'resolvers':
 							/** Interpret methods as resolvers */
 							isResolversImplementation = true;
+							break;
+						case 'ordered':
+							orderByName = true;
 							break;
 					}
 				}
@@ -241,7 +246,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 								wrappers: undefined,
 								before: undefined,
 								after: undefined,
-								ownedFieldsCount: 0
+								ownedFieldsCount: 0,
+								orderByName
 							};
 							if (isImplementation) {
 								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
@@ -265,6 +271,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								(entity.inherit ??= []).push(...inheritedEntities);
 							entity.fileNames.push(fileName);
 							entity.deprecated ??= deprecated;
+							entity.orderByName ??= orderByName;
 							// JsDoc
 							entity.jsDoc.push(...jsDoc);
 						}
@@ -732,7 +739,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 							wrappers: undefined,
 							before: undefined,
 							after: undefined,
-							ownedFieldsCount: 0
+							ownedFieldsCount: 0,
+							orderByName
 						};
 						let typeRef: Reference = {
 							kind: Kind.REF,
@@ -1192,7 +1200,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 				wrappers: undefined,
 				before: undefined,
 				after: undefined,
-				ownedFieldsCount: 0
+				ownedFieldsCount: 0,
+				orderByName: undefined
 			};
 			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}

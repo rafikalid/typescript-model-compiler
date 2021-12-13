@@ -95,6 +95,8 @@ export interface OutputObject extends _Node {
 	escapedName: string | undefined;
 	/** inherited classes and interfaces */
 	inherit: string[] | undefined;
+	/** Do order fields by name */
+	orderByName: boolean | undefined;
 	/** Fields */
 	fields: Map<string, OutputField>;
 	/** Wrap object validation */

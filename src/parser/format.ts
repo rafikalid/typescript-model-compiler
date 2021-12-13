@@ -149,7 +149,9 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 	}
 	/** Sort fields */
 	function _sortFields(fields: formattedOutputField[] | formattedInputField[], node: OutputObject | InputObject) {
-		if (node.inherit != null) {
+		if (node.orderByName) {
+			fields.sort((a, b) => a.name.localeCompare(b.name));
+		} else if (node.inherit != null) {
 			let inherit = node.inherit;
 			fields.sort(function (a, b) {
 				if (a.className === b.className)
@@ -158,11 +160,11 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					return inherit.indexOf(b.className) - inherit.indexOf(a.className);
 				else return 0;
 			});
-		}
-		else
+		} else {
 			fields.sort(function (a, b) {
 				return a.idx - b.idx;
 			});
+		}
 	}
 }
 
