@@ -1,6 +1,6 @@
 {
 	"name": "tt-model-compiler",
-	"version": "0.0.15",
+	"version": "0.0.16",
 	"description": "Compiler for typescript-model",
 	"main": "dist/commonjs/index.js",
 	"exports": {
@@ -36,17 +36,17 @@
 		"gulp-rename": "^2.0.0",
 		"gulp-sourcemaps": "^3.0.0",
 		"gulp-typescript": "^6.0.0-alpha.1",
-		"typescript": "^4.5.2",
+		"typescript": "^4.5.4",
 		"typescript-path-fix": "^1.0.5",
-		"uglify-js": "^3.14.4"
+		"uglify-js": "^3.14.5"
 	},
 	"dependencies": {
 		"chalk": "^5.0.0",
 		"glob": "^7.1.7",
-		"graphql": "^16.0.1",
+		"graphql": "^16.1.0",
 		"json6": "^1.0.3",
 		"through2": "^4.0.2",
-		"tt-model": "^0.0.21",
+		"tt-model": "^0.0.22",
 		"vinyl": "^2.2.1",
 		"yaml": "^1.10.2"
 	}
