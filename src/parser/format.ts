@@ -43,7 +43,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					kind: Kind.FORMATTED_INPUT_OBJECT,
 					name: node.name,
 					escapedName: node.escapedName!,
-					fields: _formatInputFields(node.fields),
+					fields: _formatInputFields(node),
 					wrappers: node.wrappers,
 					before: node.before,
 					after: node.after,
@@ -59,7 +59,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					kind: Kind.FORMATTED_OUTPUT_OBJECT,
 					name: node.name,
 					escapedName: node.escapedName!,
-					fields: _formatOutputFields(node.fields as Map<string, OutputField>),
+					fields: _formatOutputFields(node),
 					wrappers: node.wrappers,
 					before: node.before,
 					after: node.after,
@@ -87,11 +87,11 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 	return result;
 
 	/** Format input fields */
-	function _formatInputFields(fields: Map<string, InputField>): formattedInputField[] {
+	function _formatInputFields(obj: InputObject): formattedInputField[] {
 		const result: formattedInputField[] = [];
-		fields.forEach(function (field) {
+		obj.fields.forEach(function (field) {
 			// Look for implementation
-			const fieldImp = field.className ? helperEntities.get(field.className)?.fields.get(field.name) as InputField : undefined;
+			const fieldImp = _getFieldImp(obj, field);
 			// Create formatted field
 			const formattedField: formattedInputField = {
 				kind: Kind.INPUT_FIELD,
@@ -117,11 +117,11 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 		return result;
 	}
 	/** Format output fields */
-	function _formatOutputFields(fields: Map<string, OutputField>): formattedOutputField[] {
+	function _formatOutputFields(obj: OutputObject): formattedOutputField[] {
 		const result: formattedOutputField[] = [];
-		fields.forEach(function (field) {
+		obj.fields.forEach(function (field) {
 			// Look for implementation
-			const fieldImp = field.className ? helperEntities.get(field.className)?.fields.get(field.name) as OutputField : undefined;
+			const fieldImp = _getFieldImp(obj, field);
 			// Create formatted field
 			const formattedField: formattedOutputField = {
 				kind: Kind.OUTPUT_FIELD,
@@ -146,6 +146,25 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 			result.push(formattedField);
 		});
 		return result;
+	}
+	/** Get field implementation */
+	function _getFieldImp(node: InputObject, field: InputField): InputField | undefined;
+	function _getFieldImp(node: OutputObject, field: OutputField): OutputField | undefined;
+	function _getFieldImp(node: InputObject | OutputObject, field: InputField | OutputField): InputField | OutputField | undefined {
+		let fieldName = field.name;
+		// Check using current object
+		let fieldImp = helperEntities.get(node.name)?.fields.get(fieldName);
+		if (fieldImp != null) return fieldImp;
+		// Load using inheritance
+		if (node.inherit != null) {
+			for (let i = 0, inherit = node.inherit, len = inherit.length; i < len; ++i) {
+				if (fieldImp = helperEntities.get(inherit[i])?.fields.get(fieldName)) break;
+			}
+			if (fieldImp != null) return fieldImp;
+		}
+		// By field explicit class
+		if (field.className != null) fieldImp = helperEntities.get(field.className)?.fields.get(fieldName);
+		return fieldImp;
 	}
 	/** Sort fields */
 	function _sortFields(fields: formattedOutputField[] | formattedInputField[], node: OutputObject | InputObject) {
