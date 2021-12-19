@@ -56,80 +56,41 @@ export function parse(files: readonly string[], program: ts.Program) {
 			//* Get next item
 			let item = it.next();
 			if (item.done) break;
-			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation, propertyType } = item.value;
-			let nodeSymbol = nodeType.symbol;
+			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation, propertyType, symbol: nodeSymbol } = item.value;
 			let fileName = srcFile.fileName;
 			//* Extract jsDoc && Metadata
 			let asserts: string[] | undefined;
 			let deprecated: string | undefined;
 			let defaultValue: any;
 			let fieldAlias: string | undefined;
-			let jsDocTags = ts.getJSDocTags(node);
 			let jsDoc: string[] = nodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
 			/** Do order fields by name */
 			let orderByName: boolean | undefined;
-			//  -?? [
-			// 	(
-			// 		node
-			// 			.getChildren()
-			// 			.find(
-			// 				e => e.kind === ts.SyntaxKind.JSDocComment
-			// 			) as ts.JSDoc
-			// 	)?.comment
-			// ] ??
-			// [];
 			// Parse JsDocTags
-			if (jsDocTags.length) {
+			let jsDocTags = nodeSymbol?.getJsDocTags();
+			if (jsDocTags != null && jsDocTags.length) {
 				for (let i = 0, len = jsDocTags.length; i < len; ++i) {
 					let tag = jsDocTags[i];
-					jsDoc.push(tag.getText());
-					let tagName = tag.tagName.getText();
-					let tagText: any;
-					switch (tagName) {
+					jsDoc.push(tag.text == null ? `@${tag.name}` : `@${tag.name} ${tag.text}`);
+					let tagText = tag.text?.map(c => c.text).join("\n").trim();
+					switch (tag.name) {
 						case 'ignore':
 						case 'virtual':
 							// Ignore this Node
 							continue rootLoop;
 						case 'deprecated':
-							tagText = tag.comment;
-							if (tagText == null) deprecated = '';
-							else {
-								if (Array.isArray(tagText))
-									tagText = tagText
-										.map((l: ts.JSDocText) => l.text)
-										.join('\n');
-								deprecated = tagText.toString();
-							}
+							deprecated = tagText ?? '';
 							break;
 						case 'assert':
-							tagText = tag.comment;
-							if (tagText != null) {
-								if (Array.isArray(tagText))
-									tagText = tagText
-										.map((l: ts.JSDocText) => l.text)
-										.join(', ');
+							if (tagText) {
 								// FIXME check using multiple lines for jsdoc tag
-								if (tagText) {
-									tagText = tagText.trim();
-									if (!tagText.startsWith('{'))
-										tagText = `{${tagText}}`;
-									(asserts ??= []).push(tagText);
-								}
+								if (!tagText.startsWith('{'))
+									tagText = `{${tagText}}`;
+								(asserts ??= []).push(tagText);
 							}
 							break;
 						case 'default':
-							if (Array.isArray(tag.comment)) {
-								defaultValue = (tag.comment[0] as ts.JSDocText)
-									.text.trim();
-								// if (defaultValue === 'true') defaultValue = true;
-								// else if (defaultValue === "false") defaultValue = false;
-								// else {
-								// 	try {
-								// 		// If fail to convert to number, keep it string
-								// 		defaultValue = _parseStringValue(defaultValue);
-								// 	} catch (error: any) { }
-								// }
-							}
+							defaultValue = tagText;
 							break;
 						case 'input':
 							isInput = true;
@@ -138,8 +99,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							isInput = false;
 							break;
 						case 'alias':
-							if (typeof tag.comment === 'string')
-								fieldAlias = tag.comment.trim().split(/\s/, 1)[0];
+							fieldAlias = tagText;
 							break;
 						case 'resolvers':
 							/** Interpret methods as resolvers */
@@ -283,7 +243,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let dec = s.valueDeclaration ?? s.declarations?.[0];
 							if (dec == null) continue;
 							let propType = typeChecker.getTypeOfSymbolAtLocation(s, node);
-							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name, isResolversImplementation);
+							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name, isResolversImplementation, undefined, s);
 						}
 						// next: resolve input
 						isResolveInput = true;
@@ -549,7 +509,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 										visitor.push(
 											propertyDeclaration, typeChecker.getTypeAtLocation(propertyDeclaration),
 											entity, srcFile, isInput, propertyTypeName, isResolversImplementation,
-											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration)
+											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration),
+											property
 										);
 									}
 								}
@@ -575,7 +536,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 										visitor.push(
 											propertyDeclaration, typeChecker.getTypeAtLocation(propertyDeclaration),
 											entity, srcFile, isInput, propertyTypeName, isResolversImplementation,
-											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration)
+											typeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration),
+											property
 										);
 									}
 								}
@@ -1177,10 +1139,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 			)
 				result = _cleanReference(node.typeArguments[0]);
 			else result = node;
+		} else if (_getNodeName(node, node.getSourceFile()) === 'null') {
+			result = undefined;
 		} else {
-			let tx = _getNodeName(node, node.getSourceFile())
-			if (tx.includes('null'))
-				console.log('=================+>' + tx)
 			result = node;
 		}
 		return result;

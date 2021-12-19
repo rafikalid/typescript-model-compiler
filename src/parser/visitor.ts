@@ -15,7 +15,9 @@ export interface VisitorEntities {
 	/** Name of the target entity if specified by it's parent */
 	entityName: string | undefined,
 	/** Property type in case of generic */
-	propertyType: ts.Type | undefined
+	propertyType: ts.Type | undefined,
+	/** Property symbol */
+	symbol: ts.Symbol | undefined
 }
 /**
  * Visitor
@@ -41,7 +43,8 @@ export class NodeVisitor {
 		entityName?: string,
 		isResolversImplementation?: boolean,
 		/** Type of property in case of generics */
-		propertyType?: ts.Type
+		propertyType?: ts.Type,
+		symbol?: ts.Symbol
 	) {
 		const queue = this._queue;
 		queue.push({
@@ -52,7 +55,8 @@ export class NodeVisitor {
 			isInput,
 			entityName,
 			isResolversImplementation,
-			propertyType
+			propertyType,
+			symbol
 		});
 		return this;
 	}
@@ -76,7 +80,8 @@ export class NodeVisitor {
 				isInput,
 				entityName,
 				isResolversImplementation,
-				propertyType: undefined
+				propertyType: undefined,
+				symbol: undefined
 			});
 		}
 	}
