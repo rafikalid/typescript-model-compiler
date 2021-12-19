@@ -936,7 +936,6 @@ export function toGraphQL(
 			case Kind.FORMATTED_INPUT_OBJECT: {
 				// Remove entity from circle check
 				seekVldCircle.delete(node);
-				// TODO ignore this object if has no children and no validation, add validation
 				// Check for circles
 				const fields: ts.ObjectLiteralExpression[] = [];
 				const circleFields: formattedInputField[] = []
@@ -944,6 +943,17 @@ export function toGraphQL(
 					let field = childrenData[i] as ts.ObjectLiteralExpression | undefined | false;
 					if (field == null) circleFields.push(arr[i]);
 					else if (field != false) fields.push(field);
+				}
+				// Ignore if has no child to valid and has no validation
+				if (
+					fields.length === 0 &&
+					circleFields.length === 0 &&
+					node.before == null &&
+					node.after == null &&
+					(node.wrappers == null || node.wrappers.length === 0)
+				) {
+					varId = false;
+					break;
 				}
 				// Create properties list
 				let fieldsArrExpression: ts.Expression = f.createArrayLiteralExpression(fields, pretty);

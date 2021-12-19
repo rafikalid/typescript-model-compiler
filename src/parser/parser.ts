@@ -58,6 +58,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 			if (item.done) break;
 			let { node, nodeType, parentDescriptor: pDesc, srcFile, isInput, entityName, isResolversImplementation, propertyType, symbol: nodeSymbol } = item.value;
 			let fileName = srcFile.fileName;
+			if (nodeSymbol == null) nodeSymbol = nodeType.symbol;
 			//* Extract jsDoc && Metadata
 			let asserts: string[] | undefined;
 			let deprecated: string | undefined;
@@ -71,8 +72,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 			if (jsDocTags != null && jsDocTags.length) {
 				for (let i = 0, len = jsDocTags.length; i < len; ++i) {
 					let tag = jsDocTags[i];
-					jsDoc.push(tag.text == null ? `@${tag.name}` : `@${tag.name} ${tag.text}`);
 					let tagText = tag.text?.map(c => c.text).join("\n").trim();
+					jsDoc.push(tag.text == null ? `@${tag.name}` : `@${tag.name} ${tagText}`);
 					switch (tag.name) {
 						case 'ignore':
 						case 'virtual':
@@ -99,7 +100,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 							isInput = false;
 							break;
 						case 'alias':
-							fieldAlias = tagText;
+							if (tagText) {
+								let t = tagText.match(/^\w+/);
+								if (t != null) fieldAlias = t[0];
+							}
 							break;
 						case 'resolvers':
 							/** Interpret methods as resolvers */
@@ -259,7 +263,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.OUTPUT_OBJECT
 					)
 						continue;
-					if (entityName == null) throw `Unexpected missing field name at ${errorFile(srcFile, node)}`;
+					if (entityName == null) {
+						throw `Unexpected missing field name at ${errorFile(srcFile, node)}`;
+					}
 					let propertyNode = node as ts.PropertySignature | ts.MethodDeclaration | ts.PropertyDeclaration;
 					let className = (propertyNode.parent as ts.ClassLikeDeclaration).name?.getText();
 					let method: MethodDescriptor | undefined;
