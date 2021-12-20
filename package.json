@@ -1,6 +1,6 @@
 {
 	"name": "tt-model-compiler",
-	"version": "0.0.18",
+	"version": "0.0.19",
 	"description": "Compiler for typescript-model",
 	"main": "dist/commonjs/index.js",
 	"exports": {

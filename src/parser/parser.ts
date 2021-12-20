@@ -94,10 +94,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 							defaultValue = tagText;
 							break;
 						case 'input':
-							isInput = true;
+							if (isInput === false) continue rootLoop;
 							break;
 						case 'output':
-							isInput = false;
+							if (isInput === true) continue rootLoop;
 							break;
 						case 'alias':
 							if (tagText) {
@@ -298,7 +298,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let p: Omit<InputField, 'type'> & { type: undefined } = {
 								kind: Kind.INPUT_FIELD,
 								name: entityName,
-								required: _isRequired(nodeType),
+								required: (node as ts.PropertyDeclaration).questionToken ? false : _isRequired(propertyType ?? nodeType),
 								alias: fieldAlias,
 								idx: pDesc.ownedFieldsCount++,
 								className: className,
@@ -315,7 +315,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let p: Omit<OutputField, 'type'> & { type: undefined } = {
 								name: entityName,
 								kind: Kind.OUTPUT_FIELD,
-								required: _isRequired(nodeType),
+								required: (node as ts.PropertyDeclaration).questionToken ? false : _isRequired(propertyType ?? nodeType),
 								alias: fieldAlias,
 								idx: pDesc.ownedFieldsCount++,
 								className: className,
@@ -533,7 +533,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 									let property = properties[j];
 									let propertyTypeName = property.name;
 									if (!foundSymbols.has(propertyTypeName)) {
-										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration;
+										let propertyDeclaration = (property.valueDeclaration ?? property.declarations?.[0]) as ts.PropertyDeclaration | undefined;
 										if (propertyDeclaration == null) continue;
 										if (propertyDeclaration.getSourceFile().isDeclarationFile)
 											continue;
