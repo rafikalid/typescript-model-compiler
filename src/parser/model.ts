@@ -47,7 +47,10 @@ export enum Kind {
 	/** Formatted Input object */
 	FORMATTED_OUTPUT_OBJECT,
 	/** Formatted output object */
-	FORMATTED_INPUT_OBJECT
+	FORMATTED_INPUT_OBJECT,
+
+	/** Converter */
+	CONVERTER
 }
 
 /** Node */
@@ -73,7 +76,7 @@ export type OutputNode =
 	| Scalar
 	| BasicScalar;
 // | ObjectLiteral;
-export type AllNodes = Node | InputField | OutputField | List | Reference | Param;
+export type AllNodes = Node | InputField | OutputField | List | Reference | Param | ConvertObj;
 
 /** @abstract basic node */
 export interface _Node {
@@ -105,6 +108,8 @@ export interface OutputObject extends _Node {
 	after: MethodDescM[] | undefined
 	/** Owned fields count */
 	ownedFieldsCount: number
+	/** Converter */
+	convert: ConvertObj | undefined
 }
 
 /** Input Object  */
@@ -112,6 +117,11 @@ export interface InputObject extends Omit<OutputObject, 'kind' | 'fields'> {
 	kind: Kind.INPUT_OBJECT;
 	/** Fields */
 	fields: Map<string, InputField>;
+}
+/** Convert object format */
+export interface ConvertObj extends MethodDescM {
+	kind: Kind.CONVERTER;
+	type: Reference | undefined;
 }
 
 

@@ -8,7 +8,7 @@ import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
 const parseYaml = Yaml.parse;
 //@ts-ignore
-import { DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
+import { Converter, DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
 import { MethodDescM, RootConfig } from "..";
 
 const IS_OF_TYPE_NULL = ts.TypeFlags.Undefined | ts.TypeFlags.Null;
@@ -213,7 +213,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 								before: undefined,
 								after: undefined,
 								ownedFieldsCount: 0,
-								orderByName
+								orderByName,
+								convert: undefined
 							};
 							if (isImplementation) {
 								let targetM = (isResolveInput ? inputHelperEntities : outputHelperEntities) as Map<string, InputObject[] | OutputObject[]>;
@@ -427,7 +428,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 						pDesc.kind !== Kind.INPUT_FIELD &&
 						pDesc.kind !== Kind.LIST &&
 						pDesc.kind !== Kind.PARAM &&
-						pDesc.kind !== Kind.UNION
+						pDesc.kind !== Kind.UNION &&
+						pDesc.kind !== Kind.CONVERTER
 					)
 						continue;
 					//* Check if simple type name
@@ -711,7 +713,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 							before: undefined,
 							after: undefined,
 							ownedFieldsCount: 0,
-							orderByName
+							orderByName,
+							convert: undefined
 						};
 						let typeRef: Reference = {
 							kind: Kind.REF,
@@ -925,6 +928,69 @@ export function parse(files: readonly string[], program: ts.Program) {
 														fileName: fileName,
 														isAsync: _hasPromise(property)
 													});
+													break;
+												}
+												default: {
+													let n: never = propertyName;
+												}
+											}
+										}
+										break;
+									}
+									case 'Converter': {
+										let inputEntityName =
+											typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
+										if (inputEntityName == null)
+											throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+										_assertEntityNotFound(inputEntityName, declaration, srcFile);
+										let obj = declaration.initializer;
+										if (obj == null)
+											throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
+										if (!ts.isObjectLiteralExpression(obj))
+											throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
+										for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
+											let property = properties[j];
+											let propertyName = property.name?.getText() as keyof Converter<any>;
+											switch (propertyName) {
+												case 'input': {
+													if (!ts.isMethodDeclaration(property))
+														throw `Expected method declaration at: ${nodeName}.input at ${errorFile(srcFile, property)}`;
+													let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
+													if (entity.convert != null)
+														throw `Convert for input for "${inputEntityName}" already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, property)}`;
+													entity.convert = {
+														kind: Kind.CONVERTER,
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property),
+														type: undefined
+													};
+													// Resolve param
+													let param = property.parameters?.[0];
+													if (param == null || param.type == null)
+														throw `Missing param for Converter<${inputEntityName}>::input at ${errorFile(srcFile, property)}`;
+													visitor.push(param.type, typeChecker.getTypeAtLocation(param.type), entity.convert, srcFile, undefined, entityName);
+													break;
+												}
+												case 'output': {
+													if (!ts.isMethodDeclaration(property))
+														throw `Expected method declaration at: ${nodeName}.output at ${errorFile(srcFile, property)}`;
+													let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
+													if (entity.convert != null)
+														throw `Convert for input for "${inputEntityName}" already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, property)}`;
+													entity.convert = {
+														kind: Kind.CONVERTER,
+														name: propertyName,
+														className: nodeName,
+														fileName: fileName,
+														isAsync: _hasPromise(property),
+														type: undefined
+													};
+													let tp = property.type;
+													if (tp == null)
+														throw `Missing type declaration for Converter<${inputEntityName}>::output at ${errorFile(srcFile, property)}`;
+													visitor.push(tp, typeChecker.getTypeAtLocation(tp), entity.convert, srcFile, undefined, entityName);
 													break;
 												}
 												default: {
@@ -1174,7 +1240,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 				before: undefined,
 				after: undefined,
 				ownedFieldsCount: 0,
-				orderByName: undefined
+				orderByName: undefined,
+				convert: undefined
 			};
 			(targetMap as Map<string, InputObject | OutputObject>).set(name, entity);
 		}

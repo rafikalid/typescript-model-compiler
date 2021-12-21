@@ -48,7 +48,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					before: node.before,
 					after: node.after,
 					jsDoc: _compileJsDoc(node.jsDoc),
-					deprecated: node.deprecated
+					deprecated: node.deprecated,
+					convert: node.convert
 				}
 				_sortFields(entity.fields, node);
 				result.set(nodeName, entity);
@@ -64,7 +65,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 					before: node.before,
 					after: node.after,
 					jsDoc: _compileJsDoc(node.jsDoc),
-					deprecated: node.deprecated
+					deprecated: node.deprecated,
+					convert: node.convert
 				}
 				_sortFields(entity.fields, node);
 				result.set(nodeName, entity);

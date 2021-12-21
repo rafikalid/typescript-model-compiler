@@ -363,8 +363,19 @@ export function toGraphQL(
 			case Kind.LIST: return [node.type];
 			case Kind.REF: {
 				let entityName = node.name;
-				let entity = isInput === true ? rootInput.get(entityName) : rootOutput.get(entityName);
-				if (entity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${entityName}" referenced at ${node.fileName}`;
+				let rootEntityMap = isInput === true ? rootInput : rootOutput;
+				let entity = rootEntityMap.get(entityName);
+				if (entity == null)
+					throw `Missing ${isInput ? 'input' : 'output'} entity "${entityName}" referenced at ${node.fileName}`;
+				// Check if has converter
+				let cnv = (entity as FormattedInputObject).convert;
+				if (cnv != null && cnv.type != null) {
+					let ent = rootEntityMap.get(cnv.type.name);
+					if (ent == null)
+						throw `Missing output entity "${cnv.type.name}" converted from "${entity.name}" defined at "${cnv.className}.${cnv.name}" at ${cnv.fileName}`;
+					entity = ent;
+				}
+				//
 				let entityEscapedName = entity.escapedName;
 				if (mapEntityVar.has(entityEscapedName)) return undefined;
 				if (seekCircle.has(entity)) return undefined; // Circular
@@ -793,8 +804,18 @@ export function toGraphQL(
 			q.push(tp);
 			tp = tp.type;
 		}
-		let entity = isInput ? rootInput.get(tp.name) : rootOutput.get(tp.name);
+		let rootEntityMap = isInput ? rootInput : rootOutput;
+		let entity = rootEntityMap.get(tp.name);
 		if (entity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${tp.name}" referenced at ${tp.fileName}`;
+		// Check if has converter
+		let cnv = (entity as FormattedInputObject).convert;
+		if (cnv != null && cnv.type != null) {
+			let ent = rootEntityMap.get(cnv.type.name);
+			if (ent == null)
+				throw `Missing output entity "${cnv.type.name}" converted from "${entity.name}" defined at "${cnv.className}.${cnv.name}" at ${cnv.fileName}`;
+			entity = ent;
+		}
+		//
 		let varId: ts.Expression | undefined = mapEntityVar.get(entity.escapedName);
 		if (varId == null) throw `Missing definition for entity "${entity.name}"`;
 		// wrap with list and requires

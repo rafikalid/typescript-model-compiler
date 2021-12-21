@@ -1,3 +1,4 @@
+import { ConvertObj } from '..';
 import {
 	BasicScalar,
 	Enum,
@@ -57,6 +58,8 @@ export interface FormattedOutputObject {
 	jsDoc: string | undefined;
 	/** Deprecation message when exists */
 	deprecated: string | undefined;
+	/** Converter */
+	convert: ConvertObj | undefined
 }
 
 /** Input Plain object */
