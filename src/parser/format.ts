@@ -173,7 +173,7 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 		if (node.orderByName) {
 			fields.sort((a, b) => a.name.localeCompare(b.name));
 		} else if (node.inherit != null) {
-			let inherit = node.inherit;
+			let inherit = [node.name, ...node.inherit];
 			fields.sort(function (a, b) {
 				if (a.className === b.className)
 					return a.idx - b.idx;

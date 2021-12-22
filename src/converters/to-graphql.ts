@@ -1,8 +1,8 @@
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
-import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject } from '@src/parser/formatted-model';
-import { FieldType, Kind, MethodDescriptor, List, Param, MethodDescM } from '../parser/model';
+import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject, FormattedOutputObject } from '@src/parser/formatted-model';
+import { FieldType, Kind, MethodDescriptor, List, Param, MethodDescM, Reference } from '../parser/model';
 import { relative, dirname } from 'path';
 import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
 import { seek } from './seek';
@@ -362,20 +362,7 @@ export function toGraphQL(
 			case Kind.ENUM: return node.members;
 			case Kind.LIST: return [node.type];
 			case Kind.REF: {
-				let entityName = node.name;
-				let rootEntityMap = isInput === true ? rootInput : rootOutput;
-				let entity = rootEntityMap.get(entityName);
-				if (entity == null)
-					throw `Missing ${isInput ? 'input' : 'output'} entity "${entityName}" referenced at ${node.fileName}`;
-				// Check if has converter
-				let cnv = (entity as FormattedInputObject).convert;
-				if (cnv != null && cnv.type != null) {
-					let ent = rootEntityMap.get(cnv.type.name);
-					if (ent == null)
-						throw `Missing output entity "${cnv.type.name}" converted from "${entity.name}" defined at "${cnv.className}.${cnv.name}" at ${cnv.fileName}`;
-					entity = ent;
-				}
-				//
+				let entity = _getEntity(node, isInput);
 				let entityEscapedName = entity.escapedName;
 				if (mapEntityVar.has(entityEscapedName)) return undefined;
 				if (seekCircle.has(entity)) return undefined; // Circular
@@ -451,7 +438,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
+					if (entity.required) varId = genRequiredExpr(varId, 'required' + entity.name);
 					let fieldConf: { [k in keyof GraphQLFieldConfig<any, any, any>]: any } = {
 						type: varId
 					};
@@ -527,7 +514,7 @@ export function toGraphQL(
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
 					// Type
-					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
+					if (entity.required) varId = genRequiredExpr(varId, 'required' + entity.name);
 					let fieldConf: { [k in keyof GraphQLInputFieldConfig]: any } = {
 						type: varId
 					};
@@ -599,7 +586,7 @@ export function toGraphQL(
 			case Kind.LIST: {
 				varId = childrenData[0] as ts.Expression | undefined; // "undefined" means has circular to parents
 				if (varId != null) {
-					if (entity.required) varId = genRequiredExpr(varId, 'requiredExpr');
+					if (entity.required) varId = genRequiredExpr(varId, 'requiredList');
 					varId = f.createNewExpression(GraphQLList, undefined, [varId]);
 				}
 				break;
@@ -607,8 +594,7 @@ export function toGraphQL(
 			case Kind.REF: {
 				varId = childrenData[0]; // "undefined" means has circular to parents
 				if (varId == null) {
-					let refEntity = isInput === true ? rootInput.get(entity.name) : rootOutput.get(entity.name);
-					if (refEntity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${entity.name}" using reference at ${entity.fileName}`;
+					let refEntity = _getEntity(entity, isInput);
 					varId = mapEntityVar.get(refEntity.escapedName);
 				}
 				break;
@@ -804,18 +790,7 @@ export function toGraphQL(
 			q.push(tp);
 			tp = tp.type;
 		}
-		let rootEntityMap = isInput ? rootInput : rootOutput;
-		let entity = rootEntityMap.get(tp.name);
-		if (entity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${tp.name}" referenced at ${tp.fileName}`;
-		// Check if has converter
-		let cnv = (entity as FormattedInputObject).convert;
-		if (cnv != null && cnv.type != null) {
-			let ent = rootEntityMap.get(cnv.type.name);
-			if (ent == null)
-				throw `Missing output entity "${cnv.type.name}" converted from "${entity.name}" defined at "${cnv.className}.${cnv.name}" at ${cnv.fileName}`;
-			entity = ent;
-		}
-		//
+		let entity = _getEntity(tp, isInput);
 		let varId: ts.Expression | undefined = mapEntityVar.get(entity.escapedName);
 		if (varId == null) throw `Missing definition for entity "${entity.name}"`;
 		// wrap with list and requires
@@ -932,9 +907,7 @@ export function toGraphQL(
 			case Kind.ENUM: return node.members
 			case Kind.LIST: return [node.type];
 			case Kind.REF: {
-				let entityName = node.name;
-				let entity = rootInput.get(entityName);
-				if (entity == null) throw `Missing input entity "${entityName}" referenced at ${node.fileName}`;
+				let entity = _getEntity(node, true) as FormattedInputNode;
 				let entityEscapedName = entity.escapedName;
 				if (mapVldEntityVar.has(entityEscapedName)) return undefined;
 				if (seekVldCircle.has(entity)) return undefined; // Circular
@@ -1060,7 +1033,7 @@ export function toGraphQL(
 			case Kind.REF: {
 				varId = childrenData[0]; // "undefined" means has circular to parents
 				if (varId == null) {
-					let refEntity = rootInput.get(node.name);
+					let refEntity = _getEntity(node, true);
 					if (refEntity == null) throw `Missing entity: ${node.name}`;
 					varId = mapVldEntityVar.get(refEntity.escapedName);
 				}
@@ -1207,6 +1180,22 @@ export function toGraphQL(
 		let expr: ts.CallExpression | ts.AwaitExpression = _callExpression(_getMethodCall(_import(method), method), args);
 		if (method.isAsync) expr = f.createAwaitExpression(expr);
 		return expr;
+	}
+	/** Get entity or it's converted by name */
+	function _getEntity(ref: Reference, isInput: boolean) {
+		let rootEntityMap = isInput === true ? rootInput : rootOutput;
+		let entity = rootEntityMap.get(ref.name);
+		if (entity == null)
+			throw `Missing ${isInput ? 'input' : 'output'} entity "${ref.name}" referenced at ${ref.fileName}`;
+		// Check if has converter
+		let cnv = (entity as FormattedInputObject).convert;
+		if (cnv != null && cnv.type != null) {
+			let ent = rootEntityMap.get(cnv.type.name);
+			if (ent == null)
+				throw `Missing ${isInput ? 'input' : 'output'} entity "${cnv.type.name}" converted from "${entity.name}" defined at "${cnv.className}.${cnv.name}" at ${cnv.fileName}`;
+			entity = ent;
+		}
+		return entity;
 	}
 }
 
