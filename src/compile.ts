@@ -264,7 +264,6 @@ export class Compiler {
 		const result: CompileResult[] = [];
 		files.forEach(function (srcFile, path) {
 			try {
-
 				result.push({
 					path,
 					content: tsPrinter.printFile(srcFile)

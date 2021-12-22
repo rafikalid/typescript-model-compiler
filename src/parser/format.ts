@@ -107,13 +107,14 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				fileNames: field.fileNames,
 				idx: field.idx,
 				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
-				method: field.method,
-				type: field.type
+				pipe: fieldImp ? [...field.pipe, ...fieldImp.pipe] : [...field.pipe],
+				type: field.type,
+				convert: undefined
 			};
-			if (formattedField.method == null && fieldImp != null && fieldImp.method != null) {
-				formattedField.method = fieldImp.method;
+			if (fieldImp != null && fieldImp.pipe.length) {
 				formattedField.type = fieldImp.type;
 			}
+			formattedField.convert = _getWrapper(field);
 			result.push(formattedField);
 		});
 		return result;
@@ -138,13 +139,16 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
 				method: field.method,
 				type: field.type,
-				param: field.param
+				param: field.param,
+				convert: undefined
 			};
 			if (formattedField.method == null && fieldImp != null && fieldImp.method != null) {
 				formattedField.method = fieldImp.method;
 				formattedField.type = fieldImp.type;
 				formattedField.param = fieldImp.param;
 			}
+			// Converter
+			formattedField.convert = _getWrapper(field);
 			result.push(formattedField);
 		});
 		return result;
@@ -185,6 +189,17 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 			fields.sort(function (a, b) {
 				return a.idx - b.idx;
 			});
+		}
+	}
+	/** Get entity wrapper */
+	function _getWrapper(field: InputField | OutputField) {
+		if (field.type != null) {
+			let ref = field.type;
+			while (ref.kind !== Kind.REF) ref = ref.type;
+			let entity = map.get(ref.name);
+			if (entity == null)
+				throw `Missing entity "${ref.name}" referenced at ${ref.fileName}`;
+			return (entity as InputObject | OutputObject).convert;
 		}
 	}
 }

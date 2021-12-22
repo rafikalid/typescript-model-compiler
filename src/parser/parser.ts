@@ -95,9 +95,11 @@ export function parse(files: readonly string[], program: ts.Program) {
 							break;
 						case 'input':
 							if (isInput === false) continue rootLoop;
+							isInput = true;
 							break;
 						case 'output':
 							if (isInput === true) continue rootLoop;
+							isInput = false;
 							break;
 						case 'alias':
 							if (tagText) {
@@ -308,7 +310,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								asserts: asserts && _compileAsserts(asserts, undefined, srcFile, node),
 								deprecated: deprecated,
 								jsDoc: jsDoc,
-								method: method,
+								pipe: method == null ? [] : [method],
 								fileNames: [fileName]
 							};
 							field = p as any as InputField | OutputField
@@ -340,11 +342,15 @@ export function parse(files: readonly string[], program: ts.Program) {
 						field.jsDoc.push(...jsDoc);
 						field.fileNames.push(fileName);
 						if (method != null) {
-							if (field.method != null)
+							if (field.kind === Kind.INPUT_FIELD) {
+								field.pipe.push(method);
+							} else if (field.method != null) {
 								throw `Field "${pDesc.name}.${entityName}" already has an ${isInput ? 'input' : 'output'
 								} resolver as "${field.method.className}.${field.method.name}" . Got "${className}.${entityName}" at: ${errorFile(srcFile, node)
 								}. Other files:\n\t> ${field.fileNames.join("\n\t> ")}`;
-							field.method = method;
+							} else {
+								field.method = method;
+							}
 						}
 						if (isInput) {
 							if (asserts != null) {
@@ -1435,13 +1441,13 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 
 					if (objField.kind === Kind.INPUT_FIELD) {
 						objField.asserts ??= (field as InputField).asserts;
-						if (objField.method == null) {
-							objField.method = field.method;
+						if ((field as InputField).pipe.length) {
+							objField.pipe.push(...(field as InputField).pipe);
 							objField.type = field.type;
 						}
 					} else {
 						if (objField.method == null) {
-							objField.method = field.method;
+							objField.method = (field as OutputField).method;
 							objField.type = field.type;
 							objField.param = (field as OutputField).param;
 						}

@@ -13,7 +13,7 @@ export function seek<T, TData>(
 	const queue: QueueSchema<T, TData>[] = [
 		{
 			state: NodeVisitState.ROOT_NODE,
-			childrenData: []
+			childrenData: rootChildrenData
 		}
 	];
 	//* Add root nodes
@@ -23,7 +23,7 @@ export function seek<T, TData>(
 		queue.push({
 			state: NodeVisitState.COLLECT_DATA,
 			childrenData: rootChildrenData,
-			index: 0
+			index: i
 		}, {
 			node: rootNodes[i],
 			isInput: false,

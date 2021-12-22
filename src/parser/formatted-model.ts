@@ -1,4 +1,4 @@
-import { ConvertObj } from '..';
+import { ConvertObj, MethodDescriptor } from '..';
 import {
 	BasicScalar,
 	Enum,
@@ -70,8 +70,14 @@ export interface FormattedInputObject extends Omit<FormattedOutputObject, 'kind'
 }
 
 
-export type formattedInputField = Omit<InputField, 'jsDoc'> & { jsDoc: string | undefined };
-export type formattedOutputField = Omit<OutputField, 'jsDoc'> & { jsDoc: string | undefined };
+export interface FormattedFieldsAdditional {
+	jsDoc: string | undefined
+	/** Referenced object convert method */
+	convert: ConvertObj | undefined
+}
+
+export type formattedInputField = Omit<InputField, keyof FormattedFieldsAdditional> & FormattedFieldsAdditional;
+export type formattedOutputField = Omit<OutputField, keyof FormattedFieldsAdditional> & FormattedFieldsAdditional;
 
 
 // /** Resolved fields */

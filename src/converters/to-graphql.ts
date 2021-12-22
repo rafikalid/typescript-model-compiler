@@ -66,7 +66,7 @@ export function toGraphQL(
 	const circlesQueue: CircleQueueItem[] = [];
 	/** Seek validation */
 	const seekVldCircle: Set<FormattedInputNode> = new Set();
-	const mapVldEntityVar: Map<string, ts.Identifier> = new Map();
+	const mapVldEntityVar: Map<string, ts.Identifier | false> = new Map();
 	const circlesVldQueue: CircleQueueItem[] = [];
 	/** Go through nodes */
 	const seekCircle: Set<FormattedOutputNode | FormattedInputNode> = new Set();
@@ -522,11 +522,6 @@ export function toGraphQL(
 					if (entity.defaultValue) fieldConf.defaultValue = entity.defaultValue;
 					if (entity.deprecated) fieldConf.deprecationReason = entity.deprecated;
 					if (entity.jsDoc) fieldConf.description = entity.jsDoc;
-					if (entity.method) {
-						// TODO input validator, maybe not here :D
-					} else if (entity.alias) {
-						// TODO input alias, maybe not here :D
-					}
 					varId = f.createPropertyAssignment(entity.alias ?? entity.name, _serializeObject(fieldConf));
 				}
 				break;
@@ -830,13 +825,13 @@ export function toGraphQL(
 		seekVldCircle.clear();
 		// mapVldEntityVar.clear();
 		// circlesVldQueue.length = 0;
-		let result: ts.Expression | undefined;
+		let result: ts.Expression | false | undefined;
 		let inputType = param?.type;
 		if (inputType != null) {
 			let inputEntity = rootInput.get(inputType.name);
 			if (inputEntity == null) throw `Unexpected missing input entity "${inputType.name}" referenced at: ${inputType.fileName}`;
 			result = mapVldEntityVar.get(inputEntity.escapedName);
-			if (result == null) result = seek<SeekVldNode, SeekOutputData>([inputEntity], _seekValidationDown, _seekValidationUp)[0] as ts.Expression | undefined;
+			if (result == null) result = seek<SeekVldNode, SeekOutputData>([inputEntity], _seekValidationDown, _seekValidationUp)[0] as ts.Expression | false | undefined;
 		}
 		// Create wrapper
 		let body: ts.Statement[] = [];
@@ -849,7 +844,7 @@ export function toGraphQL(
 			}
 		}
 		//* Validate input data
-		if (result != null) {
+		if (result != null && result !== false) {
 			body.push(_affect('args',
 				f.createAwaitExpression(
 					_callExpression(inputValidationWrapperId, [result, 'parent', 'args', 'ctx', 'info'])
@@ -947,6 +942,7 @@ export function toGraphQL(
 					(node.wrappers == null || node.wrappers.length === 0)
 				) {
 					varId = false;
+					mapVldEntityVar.set(node.escapedName, false);
 					break;
 				}
 				// Create properties list
@@ -997,22 +993,20 @@ export function toGraphQL(
 					varId === false &&
 					node.alias == null &&
 					node.asserts == null &&
-					node.method == null
+					node.convert == null &&
+					node.pipe.length === 0
 				) { }
 				else {
 					// Conf
+					let pipeM = _generatePipe(node);
 					let conf: { [k in keyof InputField]: any } = {
 						name: node.name,
 						alias: node.alias ?? node.name,
 						required: node.required,
 						type: varId === false ? undefined : varId,
 						assert: node.asserts == null ? undefined : compileAsserts(node.name, node.asserts, node.type, f, pretty),
-						pipe: node.method == null ?
-							undefined :
-							f.createFunctionExpression(undefined, undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']), undefined, f.createBlock([
-								f.createReturnStatement(_callExpression(_getMethodCall(_import(node.method), node.method), ['parent', 'args', 'ctx', 'info']))
-							])),
-						pipeAsync: node.method?.isAsync ?? false
+						pipe: pipeM.fx,
+						pipeAsync: pipeM.useAsync
 					};
 					varId = _serializeObject(conf);
 				}
@@ -1196,6 +1190,37 @@ export function toGraphQL(
 			entity = ent;
 		}
 		return entity;
+	}
+	/** Generate pipe */
+	function _generatePipe(node: formattedInputField) {
+		var pipe = node.convert == null ? node.pipe : [...node.pipe, node.convert];
+		var result: ts.FunctionExpression | undefined;
+		var useAsync = false;
+		if (pipe.length > 0) {
+			// Add first functions
+			let body: ts.Statement[] = [];
+			let lastIndex = pipe.length - 1;
+			for (let i = 0; i < lastIndex; ++i) {
+				let method = pipe[i];
+				let expr: ts.Expression = _createMethodCallExp(method);
+				if (method.isAsync) {
+					expr = f.createAwaitExpression(expr);
+					useAsync = true;
+				}
+				body.push(_affect('args', expr));
+			}
+			// Add last line with return statement
+			body.push(
+				f.createReturnStatement(_createMethodCallExp(pipe[lastIndex]))
+			);
+
+			result = f.createFunctionExpression(
+				useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+				undefined, undefined, undefined, _getResolverArgs(['parent', 'args', 'ctx', 'info']),
+				undefined, f.createBlock(body, pretty)
+			);
+		}
+		return { fx: result, useAsync };
 	}
 }
 

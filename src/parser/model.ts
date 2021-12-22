@@ -148,7 +148,7 @@ export interface InputField extends _Field {
 	/** Input Assert */
 	asserts: AssertOptions | undefined;
 	/** Input validator */
-	method: MethodDescriptor | undefined;
+	pipe: MethodDescriptor[];
 }
 
 /** Object field */
