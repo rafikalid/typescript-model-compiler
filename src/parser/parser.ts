@@ -973,10 +973,10 @@ export function parse(files: readonly string[], program: ts.Program) {
 														type: undefined
 													};
 													// Resolve param
-													let param = property.parameters?.[0];
-													if (param == null || param.type == null)
+													let paramType = _rmNull(property.parameters?.[1]?.type);
+													if (paramType == null)
 														throw `Missing param for Converter<${inputEntityName}>::input at ${errorFile(srcFile, property)}`;
-													visitor.push(param.type, typeChecker.getTypeAtLocation(param.type), entity.convert, srcFile, undefined, entityName);
+													visitor.push(paramType, typeChecker.getTypeAtLocation(paramType), entity.convert, srcFile, undefined, entityName);
 													break;
 												}
 												case 'output': {
@@ -1481,3 +1481,20 @@ function _adjustInheritance(entity: InputObject | OutputObject, mp: Map<string, 
 		}
 	}
 }
+/** Remove "null" and "undefined" */
+function _rmNull(type: ts.TypeNode | undefined): ts.TypeNode | undefined {
+	if (type != null && ts.isUnionTypeNode(type)) {
+		let result: ts.TypeNode | undefined;
+		for (let i = 0, types = type.types, len = types.length; i < len; ++i) {
+			let tp = types[i];
+			let tpN = tp.getText();
+			if (tpN !== 'undefined' && tpN !== 'null') {
+				if (result == null) result = tp;
+				else throw `Expected only one type for node: < ${type.getText()} > at ${errorFile(type.getSourceFile(), type)}`
+			}
+		}
+		type = result;
+	}
+	return type;
+}
+

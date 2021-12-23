@@ -45,6 +45,8 @@ export function toGraphQL(
 	const ttModelImports: Map<string, ts.Identifier> = new Map();
 	// Validation function
 	const inputValidationWrapperId = _ttModelImport('pipeInputGQL');
+	const ttModelError = _ttModelImport('ModelError');
+	const ttModelErrorCode = _ttModelImport('ErrorCodes');
 	//* Other imports
 	type srcImportEntry = Map<string, { varName: ts.Identifier; isClass: boolean }>;
 	const srcImports: Map<string, srcImportEntry> = new Map();
@@ -704,18 +706,9 @@ export function toGraphQL(
 		var uIntConf: { [k in keyof GraphQLScalarTypeConfig<any, any>]: any } =
 		{
 			name: entity.escapedName,
-			parseValue: f.createPropertyAccessExpression(
-				scalarParser,
-				f.createIdentifier('parse')
-			),
-			serialize: f.createPropertyAccessExpression(
-				scalarParser,
-				f.createIdentifier('serialize')
-			),
-			description: f.createPropertyAccessExpression(
-				scalarParser,
-				f.createIdentifier('description')
-			),
+			parseValue: f.createPropertyAccessExpression(scalarParser, 'parse'),
+			serialize: f.createPropertyAccessExpression(scalarParser, 'serialize'),
+			description: f.createPropertyAccessExpression(scalarParser, 'description'),
 		};
 		// if(comment!=null) uIntConf.description= comment;
 		graphqlDeclarations.push(
@@ -845,11 +838,34 @@ export function toGraphQL(
 		}
 		//* Validate input data
 		if (result != null && result !== false) {
-			body.push(_affect('args',
-				f.createAwaitExpression(
-					_callExpression(inputValidationWrapperId, [result, 'parent', 'args', 'ctx', 'info'])
-				)
-			));
+			body.push(
+				// Validation
+				f.createVariableStatement(undefined, f.createVariableDeclarationList([
+					f.createVariableDeclaration(
+						f.createIdentifier("resp"),
+						undefined, undefined,
+						f.createAwaitExpression(
+							_callExpression(inputValidationWrapperId, [result, 'parent', 'args', 'ctx', 'info'])
+						)
+					)
+				], ts.NodeFlags.Let)),
+				// Check for errors
+				f.createIfStatement(
+					f.createBinaryExpression(_propertyAccess('resp', 'errors', 'length'),
+						f.createToken(ts.SyntaxKind.GreaterThanToken),
+						f.createNumericLiteral("0")
+					),
+					f.createThrowStatement(
+						f.createNewExpression(ttModelError, undefined, [
+							f.createPropertyAccessExpression(ttModelErrorCode, "VALIDATION_ERRORS"),
+							f.createIdentifier('`Model Errors:\\n\\t‣ ${ resp.errors.join("\\n\\t‣ ")}`')
+						])
+					),
+					undefined
+				),
+				// Affect value
+				_affect('args', f.createPropertyAccessExpression(f.createIdentifier("resp"), 'value'))
+			);
 			useAsync = true; // Validation is an async operation
 		}
 		//* Return resolver value
@@ -927,15 +943,31 @@ export function toGraphQL(
 				seekVldCircle.delete(node);
 				// Check for circles
 				const fields: ts.ObjectLiteralExpression[] = [];
-				const circleFields: formattedInputField[] = []
+				const circleFields: formattedInputField[] = [];
+				let activeFieldsCount = 0;
 				for (let i = 0, arr = node.fields, len = arr.length; i < len; ++i) {
 					let field = childrenData[i] as ts.ObjectLiteralExpression | undefined | false;
-					if (field == null) circleFields.push(arr[i]);
-					else if (field != false) fields.push(field);
+					let fieldData = arr[i];
+					if (field == null) circleFields.push(fieldData);
+					else if (field != false) {
+						fields.push(field);
+						++activeFieldsCount;
+					} else {
+						let conf: { [k in keyof InputField]: any } = {
+							name: fieldData.name,
+							alias: fieldData.alias ?? fieldData.name,
+							required: fieldData.required,
+							type: undefined,
+							assert: undefined,
+							pipe: undefined,
+							pipeAsync: false
+						};
+						fields.push(_serializeObject(conf));
+					}
 				}
 				// Ignore if has no child to valid and has no validation
 				if (
-					fields.length === 0 &&
+					activeFieldsCount === 0 &&
 					circleFields.length === 0 &&
 					node.before == null &&
 					node.after == null &&
@@ -1221,6 +1253,14 @@ export function toGraphQL(
 			);
 		}
 		return { fx: result, useAsync };
+	}
+	/** Property access */
+	function _propertyAccess(...props: string[]) {
+		var result: ts.PropertyAccessExpression =
+			f.createPropertyAccessExpression(f.createIdentifier(props[0]), f.createIdentifier(props[1]));
+		for (let i = 2, len = props.length; i < len; ++i)
+			result = f.createPropertyAccessExpression(result, f.createIdentifier(props[i]));
+		return result;
 	}
 }
 
