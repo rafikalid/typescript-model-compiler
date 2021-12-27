@@ -78,9 +78,9 @@
   integrity sha512-Klz949h02Gz2uZCMGwDUSDS1YBlTdDDgbWHi+81l29tQALUtvz4rAYi5uoVhE5Lagoq6DeqAUlbrHvW/mXDgdQ==
 
 "@types/node@*":
-  version "17.0.4"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-17.0.4.tgz#fec0ce0526abb6062fd206d72a642811b887a111"
-  integrity sha512-6xwbrW4JJiJLgF+zNypN5wr2ykM9/jHcL7rQ8fZe2vuftggjzZeRSM4OwRc6Xk8qWjwJ99qVHo/JgOGmomWRog==
+  version "17.0.5"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-17.0.5.tgz#57ca67ec4e57ad9e4ef5a6bab48a15387a1c83e0"
+  integrity sha512-w3mrvNXLeDYV1GKTZorGJQivK6XLCoGwpnyJFbJVK/aTBQUxOCaa/GlFAAN3OTDFcb7h5tiFG+YXCO2By+riZw==
 
 "@types/through2@^2.0.36":
   version "2.0.36"
@@ -2407,10 +2407,10 @@ to-through@^2.0.0:
   dependencies:
     through2 "^2.0.3"
 
-tt-model@^0.0.23:
-  version "0.0.23"
-  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.23.tgz#1839565173a1014c1774f771159bde4b7f79c033"
-  integrity sha512-xt6+wtGlws+HdV1oz0XY/BU2RBQVPNFDd82+ap32ckJAA3HY+pxs5ZifZzErG53QzgKx7Ip4VVHGoVdWX6+cEw==
+tt-model@^0.0.25:
+  version "0.0.25"
+  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.25.tgz#e3750febf5276fec2cb03f0acdf32c46057aca96"
+  integrity sha512-fX3nAjYJmWA+C3V+pX1WQtsSufCQKhCEplf8NIhN3onn+ZKgttxm/IaPslL5ExyNW/wlwQJzOLqDXEIO6dlN4A==
   dependencies:
     chalk "^5.0.0"
     glob "^7.2.0"
