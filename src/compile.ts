@@ -187,7 +187,7 @@ export class Compiler {
 	 */
 	gulp(
 		pretty = true,
-		targetExtension?: '.js' | '.mjs' | undefined
+		targetExtension?: TargetExtension | undefined
 	) {
 		const files: Map<string, string> = new Map();
 		const self = this;
