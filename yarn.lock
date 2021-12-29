@@ -2407,10 +2407,10 @@ to-through@^2.0.0:
   dependencies:
     through2 "^2.0.3"
 
-tt-model@^0.0.25:
-  version "0.0.25"
-  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.25.tgz#e3750febf5276fec2cb03f0acdf32c46057aca96"
-  integrity sha512-fX3nAjYJmWA+C3V+pX1WQtsSufCQKhCEplf8NIhN3onn+ZKgttxm/IaPslL5ExyNW/wlwQJzOLqDXEIO6dlN4A==
+tt-model@^0.0.26:
+  version "0.0.26"
+  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.26.tgz#97e833c1b912d247b062d57e8cc772c92d9bd990"
+  integrity sha512-rzIVHm0T7oRBSeV/30OrUFlFDFUB10/DEeqVjyh0NvO7qXb+NCGCPlBhbr6AmnIB5nsx0ZYobPlp2gv3Vc4/yA==
   dependencies:
     chalk "^5.0.0"
     glob "^7.2.0"
