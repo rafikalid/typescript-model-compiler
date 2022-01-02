@@ -13,6 +13,8 @@ import Vinyl from 'vinyl';
 import { toDataModel, ToDataReturn } from './converters/to-data-model';
 import { toGraphQL } from "./converters/to-graphql";
 import { _resolveImports } from "./utils/resolve-imports";
+import { MacroAnnotationHandler } from "tt-model";
+import { resolveAnnotationMacro } from ".";
 const TS_REGEX = /\.ts$/i
 
 /** Compiler::compile */
@@ -131,8 +133,14 @@ export class Compiler {
 			if (mapFiles.has(fileName)) mapFiles.set(fileName, data);
 		};
 		const program = ts.createProgram(Array.from(filePaths), compilerOptions, pHost);
+		//* Update root files
+		filePaths.forEach(file => {
+			rootFiles.set(file, program.getSourceFile(file)!);
+		});
 		//* Go through patterns and parse files
 		info(`Parsing >>`);
+		const MarcoAnnotationMap: Map<ts.Node, MacroAnnotationHandler> = new Map();
+		const typechecker = program.getTypeChecker();
 		for (let i = 0, len = patternItems.length; i < len; ++i) {
 			let { files, patterns, resolvedFiles } = patternItems[i];
 			//* Parse resolved files
@@ -141,6 +149,14 @@ export class Compiler {
 			//* Format data
 			let formatted = formatModel(root);
 			// console.log('===FORMATTED ROOT===\n', printTree(formatted, '\t'));
+			//* Resolve macro annotations
+			for (let j = 0, len = resolvedFiles.length; j < len; ++j) {
+				let filePath = resolvedFiles[j];
+				let file = rootFiles.get(filePath);
+				if (file == null) continue;
+				file = resolveAnnotationMacro(file, compilerOptions, typechecker, program, MarcoAnnotationMap);
+				rootFiles.set(filePath, file);
+			}
 			//* Add to target files
 			for (let j = 0, jLen = files.length; j < jLen; ++j) {
 				let { srcFile, node: targetNode, type: methodName } = files[j];

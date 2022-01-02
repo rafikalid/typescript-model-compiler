@@ -111,6 +111,7 @@ interface CompileResult {
 	- Senior FullStack and DATA Engineer
 - Wijdane EL HORRE <wijdane.elhorre19@gmail.com>
 	- Senior Backend and DATA Engineer
-
+- Abdelhakim RAFIK <ra.abdelhakim@gmail.com>
+	- Fullstack and Security Engineer
 # License
 MIT License

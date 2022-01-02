@@ -1,8 +1,6 @@
 //** PARSER MODEL
 
 import { DEFAULT_SCALARS } from "tt-model";
-import ts from "typescript";
-
 /** Kinds */
 export enum Kind {
 	/** Input object */
