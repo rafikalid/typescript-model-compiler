@@ -2,6 +2,7 @@ import { PACKAGE_NAME } from "@src/config";
 import ts from "typescript";
 import { MacroAnnotationHandler, MacroAnnotationNode, MacroUtils } from 'tt-model';
 import { runInNewContext } from 'vm';
+import { errorFile } from "@src/utils/error";
 
 /**
  * Resolve Annotation Macro
@@ -77,38 +78,53 @@ export function resolveAnnotationMacro(
 		var decoRmSet: Set<ts.Decorator> = new Set();
 		if (decorators != null) {
 			for (let i = 0, len = decorators.length; i < len; ++i) {
-				let decoExpr: ts.Node | undefined;
-				let decoSymbol: ts.Symbol | undefined;
-				let varSymbol: ts.Symbol | undefined;
-				let varExpr: ts.Node | undefined;
-				if (
-					(decoExpr = (decorators[i].expression as ts.CallExpression).expression) &&
-					(decoSymbol = typechecker.getSymbolAtLocation(decoExpr)) &&
-					(varSymbol = typechecker.getAliasedSymbol(decoSymbol)) &&
-					(varExpr = varSymbol.declarations?.[0]) &&
-					(ts.isVariableDeclaration(varExpr)) &&
-					(varExpr = varExpr.initializer) &&
-					(ts.isCallExpression(varExpr))
-				) {
-					let handler = MarcoAnnotationMap.get(varExpr.expression);
-					if (handler == null) {
-						if (
-							//* Check create by "AnnotationMacro"
-							(varSymbol = typechecker.getSymbolAtLocation(varExpr.expression)) &&
-							(decoExpr = varSymbol.declarations?.[0]) &&
-							ts.isImportSpecifier(decoExpr) &&
-							((decoExpr.parent.parent.parent as ts.ImportDeclaration).moduleSpecifier.getText().slice(1, -1) === PACKAGE_NAME) &&
-							(handler = _resolveHandler(varExpr, compilerOptions))
-						) {
-							MarcoAnnotationMap.set(varExpr.expression, handler);
-						} else {
-							continue; // Continue for loop
+				let decorator = decorators[i];
+				try {
+					let decoratorCall = decorator.expression as ts.CallExpression;
+					let decoExpr: ts.Node | undefined;
+					let decoSymbol: ts.Symbol | undefined;
+					let varSymbol: ts.Symbol | undefined;
+					let varExpr: ts.Node | undefined;
+					if (
+						(decoExpr = decoratorCall.expression) &&
+						(decoSymbol = typechecker.getSymbolAtLocation(decoExpr)) &&
+						(varSymbol = typechecker.getAliasedSymbol(decoSymbol)) &&
+						(varExpr = varSymbol.declarations?.[0]) &&
+						(ts.isVariableDeclaration(varExpr)) &&
+						(varExpr = varExpr.initializer) &&
+						(ts.isCallExpression(varExpr))
+					) {
+						let handler = MarcoAnnotationMap.get(varExpr.expression);
+						if (handler == null) {
+							if (
+								//* Check create by "AnnotationMacro"
+								(varSymbol = typechecker.getSymbolAtLocation(varExpr.expression)) &&
+								(decoExpr = varSymbol.declarations?.[0]) &&
+								ts.isImportSpecifier(decoExpr) &&
+								((decoExpr.parent.parent.parent as ts.ImportDeclaration).moduleSpecifier.getText().slice(1, -1) === PACKAGE_NAME) &&
+								(handler = _resolveHandler(varExpr, compilerOptions))
+							) {
+								MarcoAnnotationMap.set(varExpr.expression, handler);
+							} else {
+								continue; // Continue for loop
+							}
 						}
+						// Get arguments expression
+						let args = decoratorCall.arguments.map(a => {
+							if (ts.isEnumMember(a) || ts.isPropertyAccessExpression(a) || ts.isElementAccessExpression(a))
+								return typechecker.getConstantValue(a);
+							else return undefined;
+						});
+						// Exec handler
+						node = handler(
+							node,
+							new MacroUtils(program, node, decoratorCall.arguments.map(a => a.getText())),
+							...args
+						);
+						decoRmSet.add(decorator);
 					}
-					// Exec handler
-					console.log('---- RUN HANDLER')
-					node = handler(node, new MacroUtils(program, node, []) // TODO add annotation args and resolved args
-					);
+				} catch (err: any) {
+					throw new Error(`Error at: ${errorFile(srcFile, decorator)}\n${err?.message ?? err}`);
 				}
 			}
 			decorators = node.decorators;
@@ -134,7 +150,6 @@ interface ResolveDecoReturn<T> {
 }
 
 function _resolveHandler(decoExpr: ts.CallExpression, compilerOptions: ts.CompilerOptions): MacroAnnotationHandler | undefined {
-	console.log('---- CREATE HANDLER')
 	// Prepare module text
 	let code = ts.transpile(`module.fx=${decoExpr.arguments[0].getText()}`, compilerOptions, undefined);
 	//* Prepare context
