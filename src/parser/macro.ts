@@ -118,7 +118,7 @@ export function resolveAnnotationMacro(
 						// Exec handler
 						node = handler(
 							node,
-							new MacroUtils(program, node, decoratorCall.arguments.map(a => a.getText())),
+							new MacroUtils(program, node, decoratorCall.arguments.map(a => a.getText()), args),
 							...args
 						);
 						decoRmSet.add(decorator);
