@@ -21,11 +21,10 @@ export function resolveAnnotationMacro(
 				case ts.SyntaxKind.SourceFile:
 					return ts.visitEachChild(node, _visitor, ctx);
 				case ts.SyntaxKind.ClassDeclaration: {
-					let entityNode = node as ts.ClassDeclaration;
-					if (entityNode.decorators != null) {
-						let deco = _resolveDecorators(entityNode);
+					if (node.decorators != null) {
+						let deco = _resolveDecorators(node as ts.ClassDeclaration);
 						if (deco.modified) {
-							node = deco.node;
+							let entityNode = deco.node;
 							node = factory.updateClassDeclaration(
 								entityNode, deco.decorators, entityNode.modifiers, entityNode.name,
 								entityNode.typeParameters, entityNode.heritageClauses, entityNode.members
@@ -35,11 +34,10 @@ export function resolveAnnotationMacro(
 					return ts.visitEachChild(node, _visitor, ctx);
 				}
 				case ts.SyntaxKind.MethodDeclaration: {
-					let entityNode = node as ts.MethodDeclaration
-					if (entityNode.decorators != null) {
-						let deco = _resolveDecorators(entityNode);
+					if (node.decorators != null) {
+						let deco = _resolveDecorators(node as ts.MethodDeclaration);
 						if (deco.modified) {
-							node = deco.node;
+							let entityNode = deco.node;
 							node = factory.updateMethodDeclaration(
 								entityNode, deco.decorators, entityNode.modifiers, entityNode.asteriskToken,
 								entityNode.name, entityNode.questionToken, entityNode.typeParameters,
@@ -50,11 +48,10 @@ export function resolveAnnotationMacro(
 					break;
 				}
 				case ts.SyntaxKind.PropertyDeclaration: {
-					let entityNode = node as ts.PropertyDeclaration;
-					if (entityNode.decorators != null) {
-						let deco = _resolveDecorators(entityNode);
+					if (node.decorators != null) {
+						let deco = _resolveDecorators(node as ts.PropertyDeclaration);
 						if (deco.modified) {
-							node = deco.node;
+							let entityNode = deco.node;
 							node = factory.updatePropertyDeclaration(
 								entityNode, deco.decorators, entityNode.modifiers, entityNode.name,
 								entityNode.questionToken, entityNode.type, entityNode.initializer
@@ -71,6 +68,9 @@ export function resolveAnnotationMacro(
 	return srcFile;
 
 	/** Resolve Decorators */
+	function _resolveDecorators(node: ts.ClassDeclaration): ResolveDecoReturn<ts.ClassDeclaration>;
+	function _resolveDecorators(node: ts.MethodDeclaration): ResolveDecoReturn<ts.MethodDeclaration>;
+	function _resolveDecorators(node: ts.PropertyDeclaration): ResolveDecoReturn<ts.PropertyDeclaration>;
 	function _resolveDecorators(
 		node: MacroAnnotationNode
 	): ResolveDecoReturn<MacroAnnotationNode> {
