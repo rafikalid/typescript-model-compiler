@@ -186,6 +186,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 						if (nodeEntity.name == null) throw `Unexpected anonymous class at ${errorFile(srcFile, node)}`;
 						entityName = nodeEntity.name.getText();
 					}
+					// Get qualified name
+					entityName = _getEntityQualifiedName(nodeEntity, entityName);
 					// Check if is entity or entity implementation (ie: resolvers or generic entity)
 					let isImplementation = implementedEntities != null;
 					isResolversImplementation = isImplementation || isResolversImplementation; // Set by @entity or helper class
@@ -494,7 +496,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 						else if (refTypes.length === 1) {
 							//* Resolve to a single type
 							let type = refTypes[0];
-							// refName = typeChecker.typeToString(type); // referenced node's name
 							let typeNode = typeChecker.typeToTypeNode(type, undefined, undefined);
 							if (typeNode && typeNode.kind === ts.SyntaxKind.ArrayType) {
 								visitor.push(
@@ -527,6 +528,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 											property
 										);
 									}
+								}
+							} else if (type.symbol != null) {
+								//TODO find better way to resolve type name
+								refName = typeChecker.typeToString(type, typeNode, ts.TypeFormatFlags.UseFullyQualifiedType); // referenced node's name
+								let i = refName.lastIndexOf(')');
+								if (i > -1) {
+									refName = refName.slice(i + 2);
 								}
 							}
 						}
@@ -644,7 +652,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 				case ts.SyntaxKind.EnumDeclaration: {
 					if (_hasNtExport(node, srcFile)) continue rootLoop; //* Check for export keyword
 					let enumNode = node as ts.EnumDeclaration;
-					let nodeName = enumNode.name?.getText();
+					let nodeName = _getEntityQualifiedName(enumNode, enumNode.name?.getText());
 					// Check for duplicate entities
 					let entity = INPUT_ENTITIES.get(nodeName);
 					if (entity == null) {
@@ -1055,6 +1063,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 					break;
 				}
 				case ts.SyntaxKind.SyntaxList:
+				case ts.SyntaxKind.ModuleDeclaration:
+				case ts.SyntaxKind.ModuleBlock:
 					visitor.pushChildren(typeChecker, node, pDesc, srcFile, isInput, undefined);
 					break;
 				case ts.SyntaxKind.TupleType:
@@ -1498,3 +1508,19 @@ function _rmNull(type: ts.TypeNode | undefined): ts.TypeNode | undefined {
 	return type;
 }
 
+/** Get entity qualified name (includes namespace) */
+function _getEntityQualifiedName(node: ts.Node, entityName: string): string {
+	if (node.parent.kind === ts.SyntaxKind.SourceFile) return entityName;
+	else {
+		let n: string[] = [entityName];
+		let p: ts.Node = node;
+		while (true) {
+			p = p.parent;
+			if (p.kind === ts.SyntaxKind.ModuleBlock) { }
+			else if (ts.isModuleDeclaration(p) && p.name != null) {
+				n.push(p.name.getText());
+			} else break;
+		}
+		return n.reverse().join('.');
+	}
+}

@@ -22,70 +22,78 @@ function _resolveEntities(map: Map<string, InputNode>, helperEntities: Map<strin
 function _resolveEntities(map: Map<string, OutputNode>, helperEntities: Map<string, OutputObject>): Map<string, FormattedOutputNode>;
 function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntities: Map<string, InputObject | OutputObject>) {
 	const result: Map<string, FormattedInputNode | FormattedOutputNode> = new Map();
+	const errors: string[] = [];
 	map.forEach((node, nodeName) => {
-		switch (node.kind) {
-			case Kind.BASIC_SCALAR:
-			case Kind.SCALAR:
-				(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
-				result.set(nodeName, node as any as FormattedInputNode);
-				break;
-			case Kind.UNION: {
-				(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
-				result.set(nodeName, node as any as FormattedInputNode);
-				// Check types found
-				let missingTypes = node.types.filter(t => !result.has(t.name));
-				if (missingTypes.length > 0)
-					throw `Missing types [${missingTypes.map(t => t.name).join(', ')}] on union "${node.name}" at ${node.fileNames.join(', ')}`;
-				break;
-			}
-			case Kind.INPUT_OBJECT: {
-				let entity: FormattedInputNode = {
-					kind: Kind.FORMATTED_INPUT_OBJECT,
-					name: node.name,
-					escapedName: node.escapedName!,
-					fields: _formatInputFields(node),
-					wrappers: node.wrappers,
-					before: node.before,
-					after: node.after,
-					jsDoc: _compileJsDoc(node.jsDoc),
-					deprecated: node.deprecated,
-					convert: node.convert
+		try {
+			switch (node.kind) {
+				case Kind.BASIC_SCALAR:
+				case Kind.SCALAR:
+					(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
+					result.set(nodeName, node as any as FormattedInputNode);
+					break;
+				case Kind.UNION: {
+					(node as any as FormattedNode).jsDoc = _compileJsDoc(node.jsDoc);
+					result.set(nodeName, node as any as FormattedInputNode);
+					// Check types found
+					let missingTypes = node.types.filter(t => !result.has(t.name));
+					if (missingTypes.length > 0)
+						throw `Missing types [${missingTypes.map(t => t.name).join(', ')}] on union "${node.name}" at ${node.fileNames.join(', ')}`;
+					break;
 				}
-				_sortFields(entity.fields, node);
-				result.set(nodeName, entity);
-				break;
-			}
-			case Kind.OUTPUT_OBJECT: {
-				let entity: FormattedOutputNode = {
-					kind: Kind.FORMATTED_OUTPUT_OBJECT,
-					name: node.name,
-					escapedName: node.escapedName!,
-					fields: _formatOutputFields(node),
-					wrappers: node.wrappers,
-					before: node.before,
-					after: node.after,
-					jsDoc: _compileJsDoc(node.jsDoc),
-					deprecated: node.deprecated,
-					convert: node.convert
+				case Kind.INPUT_OBJECT: {
+					let entity: FormattedInputNode = {
+						kind: Kind.FORMATTED_INPUT_OBJECT,
+						name: node.name,
+						escapedName: node.escapedName!,
+						fields: _formatInputFields(node),
+						wrappers: node.wrappers,
+						before: node.before,
+						after: node.after,
+						jsDoc: _compileJsDoc(node.jsDoc),
+						deprecated: node.deprecated,
+						convert: node.convert
+					}
+					_sortFields(entity.fields, node);
+					result.set(nodeName, entity);
+					break;
 				}
-				_sortFields(entity.fields, node);
-				result.set(nodeName, entity);
-				break;
-			}
-			case Kind.ENUM: {
-				(node as any as FormattedEnum).jsDoc = _compileJsDoc(node.jsDoc);
-				result.set(nodeName, node as any as FormattedEnum);
-				for (let i = 0, members = node.members, len = members.length; i < len; ++i) {
-					let member = members[i];
-					(member as any as FormattedEnumMember).jsDoc = _compileJsDoc(member.jsDoc);
+				case Kind.OUTPUT_OBJECT: {
+					let entity: FormattedOutputNode = {
+						kind: Kind.FORMATTED_OUTPUT_OBJECT,
+						name: node.name,
+						escapedName: node.escapedName!,
+						fields: _formatOutputFields(node),
+						wrappers: node.wrappers,
+						before: node.before,
+						after: node.after,
+						jsDoc: _compileJsDoc(node.jsDoc),
+						deprecated: node.deprecated,
+						convert: node.convert
+					}
+					_sortFields(entity.fields, node);
+					result.set(nodeName, entity);
+					break;
 				}
-				break;
+				case Kind.ENUM: {
+					(node as any as FormattedEnum).jsDoc = _compileJsDoc(node.jsDoc);
+					result.set(nodeName, node as any as FormattedEnum);
+					for (let i = 0, members = node.members, len = members.length; i < len; ++i) {
+						let member = members[i];
+						(member as any as FormattedEnumMember).jsDoc = _compileJsDoc(member.jsDoc);
+					}
+					break;
+				}
+				default:
+					let neverV: never = node;
+					throw new Error(`Unknown kind:` + neverV);
 			}
-			default:
-				let neverV: never = node;
-				throw new Error(`Unknown kind:` + neverV);
+		} catch (err) {
+			if (typeof err === 'string') errors.push(err);
+			else throw err;
 		}
 	});
+	if (errors.length > 0)
+		throw new Error(`FORMAT-ERR>>\n\t${errors.join("\n\t")}`)
 	return result;
 
 	/** Format input fields */
