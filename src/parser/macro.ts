@@ -15,6 +15,7 @@ export function resolveAnnotationMacro(
 	MarcoAnnotationMap: Map<ts.Node, MacroAnnotationHandler>
 ): ts.SourceFile {
 	const factory = ts.factory;
+	const imports: ts.ImportDeclaration[] = []
 	srcFile = ts.transform(srcFile, [function (ctx: ts.TransformationContext) {
 		function _visitor(node: ts.Node): ts.Node {
 			switch (node.kind) {
@@ -65,6 +66,14 @@ export function resolveAnnotationMacro(
 		}
 		return _visitor;
 	}], compilerOptions).transformed[0] as ts.SourceFile;
+	// Add imports
+	if (imports.length > 0) {
+		srcFile = factory.updateSourceFile(
+			srcFile, [...imports, ...srcFile.statements], srcFile.isDeclarationFile,
+			srcFile.referencedFiles, srcFile.typeReferenceDirectives, srcFile.hasNoDefaultLib,
+			srcFile.libReferenceDirectives
+		);
+	}
 	return srcFile;
 
 	/** Resolve Decorators */
@@ -116,11 +125,9 @@ export function resolveAnnotationMacro(
 							else return undefined;
 						});
 						// Exec handler
-						node = handler(
-							node,
-							new MacroUtils(program, node, decoratorCall.arguments.map(a => a.getText()), args),
-							...args
-						);
+						const macroUtils = new MacroUtils(program, node, decoratorCall.arguments.map(a => a.getText()), args)
+						node = handler(node, macroUtils, ...args);
+						if (macroUtils._imports.length > 0) imports.push(...macroUtils._imports);
 						decoRmSet.add(decorator);
 					}
 				} catch (err: any) {
