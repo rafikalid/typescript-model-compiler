@@ -521,7 +521,7 @@ export function toGraphQL(
 						type: varId
 					};
 					// Other info
-					if (entity.defaultValue) fieldConf.defaultValue = entity.defaultValue;
+					if (entity.defaultValue) fieldConf.defaultValue = f.createIdentifier(entity.defaultValue);
 					if (entity.deprecated) fieldConf.deprecationReason = entity.deprecated;
 					if (entity.jsDoc) fieldConf.description = entity.jsDoc;
 					varId = f.createPropertyAssignment(entity.alias ?? entity.name, _serializeObject(fieldConf));
@@ -692,7 +692,7 @@ export function toGraphQL(
 			let field = fields[i];
 			let paramVar = ResolveCircleFieldType(field);
 			let fieldConf: { [k in keyof GraphQLArgumentConfig]: any } = { type: paramVar };
-			if (field.defaultValue) fieldConf.defaultValue = field.defaultValue;
+			if (field.defaultValue) fieldConf.defaultValue = f.createIdentifier(field.defaultValue);
 			if (field.jsDoc) fieldConf.description = field.jsDoc;
 			if (field.deprecated) fieldConf.deprecationReason = field.deprecated;
 			properties.push(f.createPropertyAssignment(field.alias ?? field.name, _serializeObject(fieldConf)));

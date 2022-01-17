@@ -62,7 +62,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 			//* Extract jsDoc && Metadata
 			let asserts: string[] | undefined;
 			let deprecated: string | undefined;
-			let defaultValue: any;
+			let defaultValue: string | undefined;
 			let fieldAlias: string | undefined;
 			let jsDoc: string[] = nodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
 			/** Do order fields by name */
