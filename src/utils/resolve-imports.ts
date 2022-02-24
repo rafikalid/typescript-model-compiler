@@ -46,7 +46,7 @@ function _importTransform(
 ) {
 	const f = ctx.factory;
 	const _dirname = dirname(filePath);
-	const replacerRegex = /^(@[^\/\\'"`]+)/;
+	const MAPPED_IMPORT_MATCHER = /^(@[^\/\\'"`]+)(.*)/;
 	return _visitor;
 	function _visitor(node: ts.Node): ts.Node {
 		if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) {
@@ -91,30 +91,25 @@ function _importTransform(
 		//TODO find better solution to parse string
 		var path = tsPrinter.printNode(ts.EmitHint.Unspecified, node, srcFile);
 		path = path.slice(1, -1);
-		// replace @specifier
-		let startsWithAt;
-		if (
-			(startsWithAt = path.charAt(0) === '@') ||
-			(path.charAt(0) === '.' && !path.endsWith(targetExtension))
-		) {
-			// get absolute path
-			if (startsWithAt) path = path.replace(replacerRegex, _replaceCb);
-			else path = resolve(_dirname, path);
-			// check file exists
-			path = _resolveFilePath(path);
-			// create relative path to current file
-			path = relative(_dirname, path);
-			// Replace windows anti-slashes
-			if (isWindows) path = path.replace(/\\/g, '/');
-			// Add prefix "./"
-			if (path.charAt(0) === '/') path = '.' + path;
-			else if (path.charAt(0) !== '.') path = './' + path;
-		}
+		//* Check if this @ is mappable
+		let mappedImport = path.match(MAPPED_IMPORT_MATCHER);
+		let mappedKey: string | undefined;
+		if (mappedImport != null && (mappedKey = mappedPaths.get(mappedImport[1])))
+			path = `${mappedKey}${mappedImport[2]}`;
+		else if (path.charAt(0) === '.' && !path.endsWith(targetExtension))
+			path = resolve(_dirname, path);
+		else return path;
+		//* Resolve path extension
+		// check file exists
+		path = _resolveFilePath(path);
+		// create relative path to current file
+		path = relative(_dirname, path);
+		// Replace windows anti-slashes
+		if (isWindows) path = path.replace(/\\/g, '/');
+		// Add prefix "./"
+		if (path.charAt(0) === '/') path = '.' + path;
+		else if (path.charAt(0) !== '.') path = './' + path;
 		return path;
-	}
-	// Path replacer
-	function _replaceCb(txt: string, k: string) {
-		return mappedPaths.get(k) ?? txt;
 	}
 	// Resolve file path
 	function _resolveFilePath(path: string) {

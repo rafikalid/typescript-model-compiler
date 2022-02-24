@@ -117,7 +117,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				jsDoc: _compileJsDoc(fieldImp ? field.jsDoc.concat(fieldImp.jsDoc) : field.jsDoc),
 				pipe: fieldImp ? [...field.pipe, ...fieldImp.pipe] : [...field.pipe],
 				type: field.type,
-				convert: undefined
+				convert: undefined,
+				validators: field.validators
 			};
 			if (fieldImp != null && fieldImp.pipe.length) {
 				formattedField.type = fieldImp.type;
@@ -148,7 +149,8 @@ function _resolveEntities(map: Map<string, InputNode | OutputNode>, helperEntiti
 				method: field.method,
 				type: field.type,
 				param: field.param,
-				convert: undefined
+				convert: undefined,
+				resolvers: field.resolvers // TODO replace with list of methods
 			};
 			if (formattedField.method == null && fieldImp != null && fieldImp.method != null) {
 				formattedField.method = fieldImp.method;

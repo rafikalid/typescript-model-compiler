@@ -48,7 +48,10 @@ export enum Kind {
 	FORMATTED_INPUT_OBJECT,
 
 	/** Converter */
-	CONVERTER
+	CONVERTER,
+
+	/** Function expression */
+	FUNCTION_EXPRESSION
 }
 
 /** Node */
@@ -74,7 +77,7 @@ export type OutputNode =
 	| Scalar
 	| BasicScalar;
 // | ObjectLiteral;
-export type AllNodes = Node | InputField | OutputField | List | Reference | Param | ConvertObj;
+export type AllNodes = Node | InputField | OutputField | List | Reference | Param | ConvertObj | FunctionExpr;
 
 /** @abstract basic node */
 export interface _Node {
@@ -147,6 +150,8 @@ export interface InputField extends _Field {
 	asserts: AssertOptions | undefined;
 	/** Input validator */
 	pipe: MethodDescriptor[];
+	/** custom function as validator */
+	validators: string[]
 }
 
 /** Object field */
@@ -156,6 +161,8 @@ export interface OutputField extends _Field {
 	method: MethodDescriptor | undefined;
 	/** Method main parameter */
 	param: Param | undefined; // Param is a reference, could not be array or any else.
+	/** Custom function as output resolver */
+	resolvers: string[]
 }
 
 
@@ -286,4 +293,21 @@ export interface RootConfig {
 	before: MethodDescM[];
 	after: MethodDescM[];
 	wrappers: MethodDescM[];
+}
+
+/** Function expression or declaration */
+export interface FunctionExpr extends _Node {
+	kind: Kind.FUNCTION_EXPRESSION,
+	/** File name */
+	fileName: string;
+	/** Method name */
+	name: string;
+	/** If this method is async (has promise) */
+	isAsync: boolean;
+	/** Method main parameter */
+	param: Param | undefined; // Param is a reference, could not be array or any else.
+	/** If field is required */
+	required: boolean;
+	/** Content type: List or type name */
+	type: FieldType;
 }
