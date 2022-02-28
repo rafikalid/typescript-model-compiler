@@ -8,7 +8,7 @@ import { NodeVisitor } from "./visitor";
 import Yaml from 'yaml';
 const parseYaml = Yaml.parse;
 //@ts-ignore
-import { Converter, DEFAULT_SCALARS, ResolverConfig, RootConfig as RootConfigTTModel } from "tt-model";
+import { DEFAULT_SCALARS, RootConfig as RootConfigTTModel } from "tt-model";
 import { FunctionExpr, RootConfig } from "..";
 import { PACKAGE_NAME } from "@src/config";
 
@@ -157,7 +157,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						continue rootLoop;
 					}
 					let nodeEntity = node as ts.ClassDeclaration | ts.InterfaceDeclaration;
-					//* Check if it is a helper entity (class that implements ResolverOutputConfig or ResolverInputConfig)
+					//* Check if it is a helper entity (class that implements ValidatorsOf or ResolversOf)
 					let implementedEntities: string[] | undefined = undefined;
 					let inheritedEntities: string[] | undefined = undefined;
 					if (nodeEntity.heritageClauses != null) {
@@ -169,20 +169,20 @@ export function parse(files: readonly string[], program: ts.Program) {
 								if (typeSymbol == null || typeSymbol.name == null)
 									throw `Could not resolve type "${type.expression.getText()}" at ${errorFile(srcFile, type)}`;
 								switch (typeSymbol.name) {
-									case 'ResolverInputConfig':
-									case 'ResolverOutputConfig': {
+									case 'ValidatorsOf':
+									case 'ResolversOf': {
 										let resolverConfig = typeSymbol.name;
 										if (isInterface)
 											throw `An interface could not extends "${resolverConfig}". at ${errorFile(srcFile, type)}`;
-										let isResolverOutputConfig = resolverConfig === 'ResolverOutputConfig';
-										if (isInput === isResolverOutputConfig)
-											throw `Could not implement "${resolverConfig}" for ${isResolverOutputConfig ? 'output' : 'input'} only entities. at ${errorFile(srcFile, type)}`;
+										let isResolversOf = resolverConfig === 'ResolversOf';
+										if (isInput === isResolversOf)
+											throw `Could not implement "${resolverConfig}" for ${isResolversOf ? 'output' : 'input'} only entities. at ${errorFile(srcFile, type)}`;
 										let t = type.typeArguments![0] as ts.TypeReferenceNode;
 										// if (!ts.isTypeReferenceNode(t) || !typeChecker.getTypeFromTypeNode(t).isClassOrInterface())
 										// 	throw `Expected "${resolverConfig}" argument to reference a "class" or "interface" at ${errorFile(srcFile, t)}`;
 										// let typeName = typeChecker.getSymbolAtLocation(t.typeName)!.name;
 										(implementedEntities ??= []).push(_getNodeName(t.typeName, srcFile));
-										isInput = !isResolverOutputConfig;
+										isInput = !isResolversOf;
 										break;
 									}
 									default: {
@@ -820,32 +820,58 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let fieldName = typeArg.getText();
 							if (!ts.isTypeReferenceNode(typeArg))
 								throw `Unexpected Entity Name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+							//* Check has correct config. Only "Scalar" has object configuration, others has function
 							switch (s.name) {
-								case 'ModelScalar': {
-									//* Scalar
+								case 'Scalar':
 									_assertEntityNotFound(fieldName, declaration, srcFile);
+									if (!ts.isObjectLiteralExpression(declaration.initializer))
+										throw `Expected an object to define scalar "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+									break;
+								case 'UnionResolver':
+								case 'ConvertInput':
+								case 'ConvertOutput':
+									if (!ts.isFunctionExpression(declaration.initializer))
+										throw `Expected function expressions for "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+									break;
+								default:
+									//* Other config are functions
+									_assertEntityNotFound(fieldName, declaration, srcFile);
+									if (!ts.isFunctionExpression(declaration.initializer))
+										throw `Expected function expressions for "${fieldName}" at ${errorFile(srcFile, declaration)}`;
+									break;
+							}
+							//* Add data
+							switch (s.name) {
+								case 'Scalar': {
+									//* Scalar
+									let scalarEntity = INPUT_ENTITIES.get(fieldName) as Scalar | undefined;
+									if (scalarEntity == null || scalarEntity.kind !== Kind.SCALAR) {
+										scalarEntity = {
+											kind: Kind.SCALAR,
+											name: fieldName,
+											escapedName: escapeEntityName(fieldName),
+											deprecated: deprecated,
+											jsDoc: jsDoc,
+											parser: {
+												fileName: fileName,
+												className: nodeName,
+												isAsync: false,
+												isStatic: true,
+												name: undefined,
+												isClass: false
+											},
+											fileNames: [fileName]
+										};
+									} else {
+										//TODO Enable partial scalar definition
+										console.error('Scalar redefined')
+									}
 									// JUST OVERRIDE WHEN SCALAR :)
-									let scalarEntity: Scalar = {
-										kind: Kind.SCALAR,
-										name: fieldName,
-										escapedName: escapeEntityName(fieldName),
-										deprecated: deprecated,
-										jsDoc: jsDoc,
-										parser: {
-											fileName: fileName,
-											className: nodeName,
-											isAsync: false,
-											isStatic: true,
-											name: undefined,
-											isClass: false
-										},
-										fileNames: [fileName]
-									};
 									INPUT_ENTITIES.set(fieldName, scalarEntity);
 									OUTPUT_ENTITIES.set(fieldName, scalarEntity);
 									break;
 								}
-								case 'UNION': {
+								case 'UnionResolver': {
 									// parse types
 									let typeNode = _cleanReference(typeArg);
 									if (typeNode == null)
@@ -868,7 +894,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 												className: nodeName,
 												isStatic: true,
 												isAsync: false,
-												name: 'resolveType',
+												// name: 'resolveType',
+												name: undefined,
 												isClass: false
 											},
 											fileNames: [fileName]
@@ -889,7 +916,8 @@ export function parse(files: readonly string[], program: ts.Program) {
 											className: nodeName,
 											isAsync: false,
 											isStatic: true,
-											name: 'resolveType',
+											// name: 'resolveType',
+											name: undefined,
 											isClass: false
 										};
 									}
@@ -912,160 +940,108 @@ export function parse(files: readonly string[], program: ts.Program) {
 									}
 									break;
 								}
-								case 'ResolverConfig': {
-									let inputEntityName =
-										typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
-									if (inputEntityName == null)
-										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
-									_assertEntityNotFound(inputEntityName, declaration, srcFile);
-									let obj = declaration.initializer;
-									if (obj == null)
-										throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
-									if (!ts.isObjectLiteralExpression(obj))
-										throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
-									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
-										let property = properties[j];
-										let propertyName = property.name?.getText() as keyof ResolverConfig<any>;
-										switch (propertyName) {
-											case "outputFields":
-												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
-												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
-													_upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc),
-													srcFile, false, inputEntityName);
-												break;
-											case 'inputFields':
-												if (!ts.isPropertyAssignment(property)) throw `Expected property "${propertyName}" to be property assignment. At ${errorFile(srcFile, node)}`;
-												visitor.push(property.initializer, typeChecker.getTypeAtLocation(property.initializer),
-													_upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc), srcFile, true, inputEntityName);
-												break;
-											case "beforeInput": {
-												//
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.before ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											case "afterInput": {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.after ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											case "beforeOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.before ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											case "afterOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.after ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											case 'wrapInput': {
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.wrappers ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											case "wrapOutput": {
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												(entity.wrappers ??= []).push({
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property)
-												});
-												break;
-											}
-											default: {
-												let n: never = propertyName;
-											}
-										}
-									}
+								//* PreValidate
+								case 'PreValidate': {
+									let entity = _upObjectEntity(true, fieldName, fileName, deprecated, jsDoc);
+									(entity.before ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
 									break;
 								}
-								case 'Converter': {
-									let inputEntityName =
-										typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
-									if (inputEntityName == null)
+								//* PreValidate
+								case 'PostValidate': {
+									let entity = _upObjectEntity(true, fieldName, fileName, deprecated, jsDoc);
+									(entity.after ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
+									break;
+								}
+								//* WrapValidation
+								case 'WrapValidation': {
+									let entity = _upObjectEntity(true, fieldName, fileName, deprecated, jsDoc);
+									(entity.wrappers ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
+									break;
+								}
+								//* PreResolve
+								case 'PreResolve': {
+									_assertEntityNotFound(fieldName, declaration, srcFile);
+									let entity = _upObjectEntity(false, fieldName, fileName, deprecated, jsDoc);
+									(entity.before ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
+									break;
+								}
+								case 'PostResolve': {
+									_assertEntityNotFound(fieldName, declaration, srcFile);
+									let entity = _upObjectEntity(false, fieldName, fileName, deprecated, jsDoc);
+									(entity.after ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
+									break;
+								}
+								case 'WrapResolver': {
+									_assertEntityNotFound(fieldName, declaration, srcFile);
+									let entity = _upObjectEntity(false, fieldName, fileName, deprecated, jsDoc);
+									(entity.wrappers ??= []).push({
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(declaration.initializer as ts.FunctionExpression)
+									});
+									break;
+								}
+								//* Convert input
+								case 'ConvertInput':
+								case 'ConvertOutput': {
+									// Resolve Entities
+									let entityName = typeChecker.getTypeAtLocation(typeArg.typeName)?.symbol?.name;
+									if (entityName == null)
 										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
-									_assertEntityNotFound(inputEntityName, declaration, srcFile);
-									let obj = declaration.initializer;
-									if (obj == null)
-										throw `Missing Entity configuration for "${inputEntityName}" at ${errorFile(srcFile, declaration)}`;
-									if (!ts.isObjectLiteralExpression(obj))
-										throw `Expected an object literal expression to define the configuration for entity "${inputEntityName}". Got "${ts.SyntaxKind[obj.kind]}" at ${errorFile(srcFile, obj)}`;
-									for (let j = 0, properties = obj.properties, jLen = properties.length; j < jLen; ++j) {
-										let property = properties[j];
-										let propertyName = property.name?.getText() as keyof Converter<any>;
-										switch (propertyName) {
-											case 'input': {
-												if (!ts.isMethodDeclaration(property))
-													throw `Expected method declaration at: ${nodeName}.input at ${errorFile(srcFile, property)}`;
-												let entity = _upObjectEntity(true, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.convert != null)
-													throw `Convert for input for "${inputEntityName}" already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, property)}`;
-												entity.convert = {
-													kind: Kind.CONVERTER,
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property),
-													type: undefined
-												};
-												// Resolve param
-												let paramType = _rmNull(property.parameters?.[1]?.type);
-												if (paramType == null)
-													throw `Missing param for Converter<${inputEntityName}>::input at ${errorFile(srcFile, property)}`;
-												visitor.push(paramType, typeChecker.getTypeAtLocation(paramType), entity.convert, srcFile, undefined, entityName);
-												break;
-											}
-											case 'output': {
-												if (!ts.isMethodDeclaration(property))
-													throw `Expected method declaration at: ${nodeName}.output at ${errorFile(srcFile, property)}`;
-												let entity = _upObjectEntity(false, inputEntityName, fileName, deprecated, jsDoc);
-												if (entity.convert != null)
-													throw `Convert for input for "${inputEntityName}" already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, property)}`;
-												entity.convert = {
-													kind: Kind.CONVERTER,
-													name: propertyName,
-													className: nodeName,
-													fileName: fileName,
-													isAsync: _hasPromise(property),
-													type: undefined
-												};
-												let tp = property.type;
-												if (tp == null)
-													throw `Missing type declaration for Converter<${inputEntityName}>::output at ${errorFile(srcFile, property)}`;
-												visitor.push(tp, typeChecker.getTypeAtLocation(tp), entity.convert, srcFile, undefined, entityName);
-												break;
-											}
-											default: {
-												let n: never = propertyName;
-											}
-										}
+									const fxDeclaration = declaration.initializer;
+									if (!ts.isFunctionExpression(fxDeclaration))
+										throw `Expected function expressions for "${s.name}" at ${errorFile(srcFile, declaration)}`;
+									//---
+									let isInput = s.name === 'ConvertInput';
+									let entity = _upObjectEntity(isInput, entityName, fileName, deprecated, jsDoc);
+									if (entity.convert != null)
+										throw `${s.name}<${entityName}> already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, declaration)}`;
+									entity.convert = {
+										kind: Kind.CONVERTER,
+										name: undefined,
+										className: nodeName,
+										fileName: fileName,
+										isAsync: _hasPromise(fxDeclaration),
+										type: undefined
+									};
+									// Resolve
+									if (isInput) {
+										// Resolve input param
+										let paramType = _rmNull(fxDeclaration.parameters?.[1]?.type);
+										if (paramType == null)
+											throw `Missing param for ${s.name}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
+										visitor.push(paramType, typeChecker.getTypeAtLocation(paramType), entity.convert, srcFile, undefined, entityName);
+									} else {
+										let tp = fxDeclaration.type;
+										if (tp == null)
+											throw `Missing return type for ${s.name}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
+										visitor.push(tp, typeChecker.getTypeAtLocation(tp), entity.convert, srcFile, undefined, entityName);
 									}
 									break;
 								}
