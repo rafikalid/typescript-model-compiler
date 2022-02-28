@@ -806,11 +806,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 						let d = s?.declarations?.[0];
 						if (d == null || !ts.isImportSpecifier(d)) continue;
 						let lib = d.parent.parent.parent.moduleSpecifier.getText().slice(1, -1);
+						let opName = (d.propertyName ?? d.name).getText();
 						if (lib !== PACKAGE_NAME) continue;
 						//* Resolve node type name
-						let tp = typeChecker.getTypeAtLocation(declaration);
-						s = tp.symbol;
-						if (s == null) continue;
+						// let tp = typeChecker.getTypeAtLocation(declaration);
+						// s = tp.symbol;
+						// if (s == null) continue;
 						//* Check has export
 						if (hasExport === false)
 							throw `Missing "export" keyword on "${nodeName}:${type.typeName.getText()}" at ${errorFile(srcFile, node)}`;
@@ -821,7 +822,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							if (!ts.isTypeReferenceNode(typeArg))
 								throw `Unexpected Entity Name: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
 							//* Check has correct config. Only "Scalar" has object configuration, others has function
-							switch (s.name) {
+							switch (opName) {
 								case 'Scalar':
 									_assertEntityNotFound(fieldName, declaration, srcFile);
 									if (!ts.isObjectLiteralExpression(declaration.initializer))
@@ -841,7 +842,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 									break;
 							}
 							//* Add data
-							switch (s.name) {
+							switch (opName) {
 								case 'Scalar': {
 									//* Scalar
 									let scalarEntity = INPUT_ENTITIES.get(fieldName) as Scalar | undefined;
@@ -1016,12 +1017,12 @@ export function parse(files: readonly string[], program: ts.Program) {
 										throw `Could not resolve entity: "${fieldName}" at ${errorFile(srcFile, declaration)}`;
 									const fxDeclaration = declaration.initializer;
 									if (!ts.isFunctionExpression(fxDeclaration))
-										throw `Expected function expressions for "${s.name}" at ${errorFile(srcFile, declaration)}`;
+										throw `Expected function expressions for "${opName}" at ${errorFile(srcFile, declaration)}`;
 									//---
-									let isInput = s.name === 'ConvertInput';
+									let isInput = opName === 'ConvertInput';
 									let entity = _upObjectEntity(isInput, entityName, fileName, deprecated, jsDoc);
 									if (entity.convert != null)
-										throw `${s.name}<${entityName}> already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, declaration)}`;
+										throw `${opName}<${entityName}> already defined at ${entity.convert.fileName}. at ${errorFile(srcFile, declaration)}`;
 									entity.convert = {
 										kind: Kind.CONVERTER,
 										name: undefined,
@@ -1035,19 +1036,19 @@ export function parse(files: readonly string[], program: ts.Program) {
 										// Resolve input param
 										let paramType = _rmNull(fxDeclaration.parameters?.[1]?.type);
 										if (paramType == null)
-											throw `Missing param for ${s.name}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
+											throw `Missing param for ${opName}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
 										visitor.push(paramType, typeChecker.getTypeAtLocation(paramType), entity.convert, srcFile, undefined, entityName);
 									} else {
 										let tp = fxDeclaration.type;
 										if (tp == null)
-											throw `Missing return type for ${s.name}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
+											throw `Missing return type for ${opName}<${entityName}> at ${errorFile(srcFile, fxDeclaration)}`;
 										visitor.push(tp, typeChecker.getTypeAtLocation(tp), entity.convert, srcFile, undefined, entityName);
 									}
 									break;
 								}
 							}
 						} else {
-							switch (s.name) {
+							switch (opName) {
 								//* Root config
 								case 'RootConfig': {
 									let obj = declaration.initializer;
@@ -1095,7 +1096,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 								//* Output resolver
 								case 'Resolver':
 								case 'Validator': {
-									const isValidator = s.name === 'Validator';
+									const isValidator = opName === 'Validator';
 									const targetMap = isValidator ? INPUT_VALIDATORS : OUTPUT_RESOLVERS;
 									let v = targetMap.get(nodeName);
 									if (v != null)

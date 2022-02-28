@@ -348,7 +348,8 @@ export function toGraphQL(
 					let entity = rootInput.get(ref.name);
 					let returnValue: FieldType[] = [];
 					if (entity == null) throw `Missing input entity ${ref.name}`;
-					if (entity.kind !== Kind.FORMATTED_INPUT_OBJECT) throw `Entity "${ref.name}" expected input object. Got ${Kind[entity.kind]}`;
+					if (entity.kind !== Kind.FORMATTED_INPUT_OBJECT)
+						throw `Entity param "${ref.name}" expected input object. Got ${Kind[entity.kind]} at ${ref.fileName}`;
 					for (let i = 0, fields = entity.fields, len = fields.length; i < len; ++i) {
 						returnValue.push(fields[i].type);
 					}
@@ -686,7 +687,8 @@ export function toGraphQL(
 	function _fieldArg(param: Param) {
 		let ref = param.type!;
 		let refEntity = rootInput.get(ref.name)!;
-		if (refEntity.kind !== Kind.FORMATTED_INPUT_OBJECT) throw `Entity "${refEntity.name}" expected input object. Got ${Kind[refEntity.kind]}`;
+		if (refEntity.kind !== Kind.FORMATTED_INPUT_OBJECT)
+			throw `Entity arg "${refEntity.name}" expected input object. Got ${Kind[refEntity.kind]} at ${refEntity.fileNames}`;
 		let properties: ts.PropertyAssignment[] = [];
 		for (let i = 0, fields = refEntity.fields, len = fields.length; i < len; ++i) {
 			let field = fields[i];
@@ -726,16 +728,22 @@ export function toGraphQL(
 	/** Generate method call */
 	function _getMethodCall(varId: ts.Identifier, method: MethodDescM, methodName?: string) {
 		methodName ??= method.name!;
-		return f.createPropertyAccessExpression(
-			varId,
-			(method as MethodDescriptor).isClass
-				? f.createIdentifier(methodName)
-				: f.createIdentifier(
-					(method as MethodDescriptor).isStatic === false
-						? `prototype.${methodName}`
-						: methodName
-				)
-		);
+		if (methodName == null) {
+			// function
+			return varId;
+		} else {
+			// Method from class
+			return f.createPropertyAccessExpression(
+				varId,
+				(method as MethodDescriptor).isClass
+					? f.createIdentifier(methodName)
+					: f.createIdentifier(
+						(method as MethodDescriptor).isStatic === false
+							? `prototype.${methodName}`
+							: methodName
+					)
+			);
+		}
 	}
 	/** Resolve output alias */
 	function _resolveOutputAlias(name: string) {
