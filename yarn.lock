@@ -1046,7 +1046,12 @@ graceful-fs@^4.0.0, graceful-fs@^4.1.11, graceful-fs@^4.1.2, graceful-fs@^4.1.6:
   resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.2.9.tgz#041b05df45755e587a24942279b9d113146e1c96"
   integrity sha512-NtNxqUcXgpW2iMrfqSfR73Glt39K+BLwWsPs94yR63v45T0Wbej7eRmL5cWfwEgqXnmjQp3zaJTshdRW/qC2ZQ==
 
-graphql@^16.0.1, graphql@^16.2.0:
+graphql@^16.0.1:
+  version "16.3.0"
+  resolved "https://registry.yarnpkg.com/graphql/-/graphql-16.3.0.tgz#a91e24d10babf9e60c706919bb182b53ccdffc05"
+  integrity sha512-xm+ANmA16BzCT5pLjuXySbQVFwH3oJctUVdy81w1sV0vBU0KgDdBGtxQOUd5zqOBk/JayAFeG8Dlmeq74rjm/A==
+
+graphql@^16.2.0:
   version "16.2.0"
   resolved "https://registry.yarnpkg.com/graphql/-/graphql-16.2.0.tgz#de3150e80f1fc009590b92a9d16ab1b46e12b656"
   integrity sha512-MuQd7XXrdOcmfwuLwC2jNvx0n3rxIuNYOxUtiee5XOmfrWo613ar2U8pE7aHAKh8VwfpifubpD9IP+EdEAEOsA==
@@ -1592,9 +1597,9 @@ micromatch@^3.0.4, micromatch@^3.1.10, micromatch@^3.1.4:
     to-regex "^3.0.2"
 
 minimatch@^3.0.4:
-  version "3.0.4"
-  resolved "https://registry.yarnpkg.com/minimatch/-/minimatch-3.0.4.tgz#5166e286457f03306064be5497e8dbb0c3d32083"
-  integrity sha512-yJHVQEhyqPLUTgt9B83PXu6W3rx4MvvHvSUvToogpwoGDOUQ+yDrR0HRot+yOCdCO7u4hX3pWft6kWBBcqh0UA==
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/minimatch/-/minimatch-3.1.2.tgz#19cd194bfd3e428f049a70817c038d89ab4be35b"
+  integrity sha512-J7p63hRiAjw1NDEww1W7i37+ByIrOWO5XQQAzZ3VOcL0PNybwpfmV/N05zFAzwQ9USyEcX6t3UO+K5aqBQOIHw==
   dependencies:
     brace-expansion "^1.1.7"
 
@@ -2413,10 +2418,10 @@ to-through@^2.0.0:
   dependencies:
     through2 "^2.0.3"
 
-tt-model@^0.0.27:
-  version "0.0.27"
-  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.0.27.tgz#8d729fbda218e0419211551fc6cbb089489d16ca"
-  integrity sha512-5+jiPYwMIjfhlhpMDf7ZCpqLpqqJf2tLTCI4GfAv0eT4wsYdKYdpmjwJ7c7ChuIYLjXQmCfr0uUAMmKNFYbmzQ==
+tt-model@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/tt-model/-/tt-model-0.1.0.tgz#fad5d30e8be38f64fffb700996e3de88115648a6"
+  integrity sha512-7sotTejuabX0Vq0HlHVYU6lwqQwbqTIXbUDCjiiuWdQcX6r1HxD3uqDG2iu50g7gL+84fulEIIUlNyaMkPtKwg==
   dependencies:
     chalk "^5.0.0"
     glob "^7.2.0"

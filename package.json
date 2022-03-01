@@ -1,6 +1,6 @@
 {
 	"name": "tt-model-compiler",
-	"version": "0.0.23",
+	"version": "0.1.0",
 	"description": "Compiler for typescript-model",
 	"main": "dist/commonjs/index.js",
 	"exports": {
@@ -46,7 +46,7 @@
 		"graphql": "^16.2.0",
 		"json6": "^1.0.3",
 		"through2": "^4.0.2",
-		"tt-model": "^0.0.27",
+		"tt-model": "^0.1.0",
 		"vinyl": "^2.2.1",
 		"yaml": "^1.10.2"
 	}

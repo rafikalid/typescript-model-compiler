@@ -1,4 +1,7 @@
 # tt-Model Compiler
+
+> DOCS NEEDS UPGRADE. BREAKING CHANGES ADDED.
+
 This package is used to compile code for [tt-Model](https://www.npmjs.com/package/tt-model).\
 **tt-Model** is a fast and easy to use GraphQL and REST Schema extractor from typescript code.
 You don't need to learn new languages or anything else to use this API, you only need typescript that you already use.
