@@ -1216,38 +1216,18 @@ export function parse(files: readonly string[], program: ts.Program) {
 		item.ref.name = itemName;
 		(targetMap as Map<string, InputObject | OutputObject>).set(itemName, node);
 	}
-	//* Make Entities Escaped Names Unique
-	let nmSet = new Set<string>();
+	//* Adjust inheritance
 	OUTPUT_ENTITIES.forEach((entity) => {
-		let escName = entity.escapedName;
-		if (escName != null) {
-			if (entity.kind === Kind.OUTPUT_OBJECT && nmSet.has(escName)) {
-				let i = 0, escName2 = escName;
-				while (nmSet.has(escName)) {
-					escName = `${escName2}_${++i}`;
-				}
-				entity.escapedName = escName;
-			}
-			nmSet.add(escName);
-		}
 		//* List full inheritance list
-		if (entity.kind === Kind.OUTPUT_OBJECT) _adjustInheritance(entity, OUTPUT_ENTITIES);
+		if (entity.kind === Kind.OUTPUT_OBJECT) {
+			_adjustInheritance(entity, OUTPUT_ENTITIES);
+		}
 	});
 	INPUT_ENTITIES.forEach((entity) => {
-		let escName = entity.escapedName;
-		if (escName != null) {
-			if (entity.kind === Kind.INPUT_OBJECT && nmSet.has(escName)) {
-				escName += 'Input';
-				let i = 0, escName2 = escName;
-				while (nmSet.has(escName)) {
-					escName = `${escName2}_${++i}`;
-				}
-				entity.escapedName = escName;
-			}
-			nmSet.add(escName);
-		}
 		//* List full inheritance list
-		if (entity.kind === Kind.INPUT_OBJECT) _adjustInheritance(entity, INPUT_ENTITIES);
+		if (entity.kind === Kind.INPUT_OBJECT) {
+			_adjustInheritance(entity, INPUT_ENTITIES);
+		}
 	});
 	//* Return
 	return {
@@ -1552,7 +1532,7 @@ function _mergeEntityHelpers<T extends InputObject | OutputObject>(entities: Map
 
 /** Escape entity name */
 export function escapeEntityName(name: string) {
-	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_');
+	return name.replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_').replace(/_{2,}/g, '_');
 }
 
 /** Adjust inheritance list */

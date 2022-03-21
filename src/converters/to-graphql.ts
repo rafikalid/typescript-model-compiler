@@ -1,7 +1,7 @@
 import { format } from '@src/parser/format';
 import ts from 'typescript';
 import { ToDataReturn } from './to-data-model';
-import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject, FormattedOutputObject } from '@src/parser/formatted-model';
+import { FormattedOutputNode, FormattedInputNode, formattedInputField, formattedOutputField, FormattedBasicScalar, FormattedEnumMember, FormattedNode, FormattedUnion, FormattedInputObject, FormattedOutputObject, FormattedEnum, FormattedScalar } from '@src/parser/formatted-model';
 import { FieldType, Kind, MethodDescriptor, List, Param, MethodDescM, Reference } from '../parser/model';
 import { relative, dirname } from 'path';
 import { GraphQLArgumentConfig, GraphQLEnumTypeConfig, GraphQLEnumValueConfig, GraphQLFieldConfig, GraphQLInputFieldConfig, GraphQLInputObjectTypeConfig, GraphQLObjectTypeConfig, GraphQLScalarTypeConfig, GraphQLSchemaConfig, GraphQLUnionTypeConfig } from 'graphql';
@@ -9,6 +9,7 @@ import { seek } from './seek';
 import { TargetExtension } from '@src/compile';
 import { InputField, InputList, InputObject, Kind as ModelKind } from 'tt-model';
 import { compileAsserts } from '@src/validator/compile-asserts';
+import Chalk from 'chalk';
 
 /**
  * Generate Graphql schema from data
@@ -25,6 +26,27 @@ export function toGraphQL(
 	targetExtension: TargetExtension | undefined
 ): ToDataReturn {
 	type SeekNode = FormattedOutputNode | FormattedInputNode | FieldType | FormattedEnumMember | formattedOutputField | formattedInputField | Param;
+	/** Enable to Rename entities due to duplication */
+	let entityNames = new Set<string>();
+	function uniqueEntityName(entity: FormattedInputObject | FormattedOutputObject | FormattedUnion | FormattedEnum | FormattedScalar) {
+		if (
+			(entity.kind === Kind.FORMATTED_INPUT_OBJECT || entity.kind === Kind.FORMATTED_OUTPUT_OBJECT)
+			&& entity.fields.length === 0
+		)
+			throw `Missing fields on entity "${entity.name}"`;
+		let escName = entity.escapedName;
+		if (entityNames.has(escName)) {
+			const isInput = entity.kind === Kind.FORMATTED_INPUT_OBJECT;
+			if (isInput) escName += 'Input';
+			let i = 0, escName2 = escName;
+			while (entityNames.has(escName)) {
+				escName = `${escName2}_${++i}`;
+			}
+			console.warn(Chalk.yellow(`>> Renamed ${isInput ? 'Input' : 'Output'} Entity "${entity.escapedName}" to "${escName}" due to duplication`));
+			entity.escapedName = escName;
+		}
+		entityNames.add(escName);
+	}
 	/** srcFile path */
 	const srcFilePath = srcFile.fileName;
 	/** Create root wrappers */
@@ -63,7 +85,7 @@ export function toGraphQL(
 	if (node = rootOutput.get('Query')) { queue.push(node); }
 	//* Create schema
 	/** Map entities to their vars */
-	const mapEntityVar: Map<string, ts.Identifier> = new Map();
+	const mapEntityVar: Map<SeekNode, ts.Identifier> = new Map();
 	/** Circles queue */
 	const circlesQueue: CircleQueueItem[] = [];
 	/** Seek validation */
@@ -124,7 +146,7 @@ export function toGraphQL(
 					let ref = refs[i];
 					let refEntity = isInput ? rootOutput.get(ref.name) : rootOutput.get(ref.name);
 					if (refEntity == null) throw `Missing ${isInput ? 'input' : 'output'} entity "${ref.name}" using union reference at ${ref.fileName}`;
-					types.push(mapEntityVar.get(refEntity!.escapedName)!);
+					types.push(mapEntityVar.get(refEntity)!);
 				}
 				circleStatementsBlock.push(
 					f.createExpressionStatement(f.createCallExpression(
@@ -185,9 +207,10 @@ export function toGraphQL(
 	const gqlSchema: { [k in keyof GraphQLSchemaConfig]: ts.Identifier } = {};
 	// Query
 	let q: ts.Identifier | undefined;
-	if (q = mapEntityVar.get('Query')) gqlSchema.query = q;
-	if (q = mapEntityVar.get('Mutation')) gqlSchema.mutation = q;
-	if (q = mapEntityVar.get('Subscription')) gqlSchema.subscription = q;
+	let rEnt: SeekNode | undefined;
+	if ((rEnt = rootOutput.get('Query')) && (q = mapEntityVar.get(rEnt))) gqlSchema.query = q;
+	if ((rEnt = rootOutput.get('Mutation')) && (q = mapEntityVar.get(rEnt))) gqlSchema.mutation = q;
+	if ((rEnt = rootOutput.get('Subscription')) && (q = mapEntityVar.get(rEnt))) gqlSchema.subscription = q;
 	statementsBlock.push(f.createReturnStatement(
 		f.createNewExpression(GraphQLSchema, undefined, [
 			_serializeObject(gqlSchema)
@@ -366,8 +389,7 @@ export function toGraphQL(
 			case Kind.LIST: return [node.type];
 			case Kind.REF: {
 				let entity = _getEntity(node, isInput);
-				let entityEscapedName = entity.escapedName;
-				if (mapEntityVar.has(entityEscapedName)) return undefined;
+				if (mapEntityVar.has(entity)) return undefined;
 				if (seekCircle.has(entity)) return undefined; // Circular
 				return [entity];
 			}
@@ -392,6 +414,8 @@ export function toGraphQL(
 			case Kind.FORMATTED_OUTPUT_OBJECT: {
 				// Remove entity from circle check
 				seekCircle.delete(entity);
+				// Deduplicate Entity Name
+				uniqueEntityName(entity);
 				// Check for circles
 				const fields: ts.PropertyAssignment[] = [];
 				const circleFields: formattedOutputField[] = []
@@ -433,7 +457,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.escapedName, vName);
+				mapEntityVar.set(entity, vName);
 				break;
 			}
 			case Kind.OUTPUT_FIELD: {
@@ -462,6 +486,8 @@ export function toGraphQL(
 			case Kind.FORMATTED_INPUT_OBJECT: {
 				// Remove entity from circle check
 				seekCircle.delete(entity);
+				// Deduplicate Entity Name
+				uniqueEntityName(entity);
 				// Check for circles
 				const fields: ts.PropertyAssignment[] = [];
 				const circleFields: formattedInputField[] = []
@@ -503,7 +529,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.escapedName, vName);
+				mapEntityVar.set(entity, vName);
 				break;
 			}
 			case Kind.PARAM: {
@@ -532,6 +558,8 @@ export function toGraphQL(
 			case Kind.UNION: {
 				// Remove entity from circle check
 				seekCircle.delete(entity);
+				// Deduplicate Entity Name
+				uniqueEntityName(entity);
 				let typesArr: ts.Identifier = f.createUniqueName(`${entity.escapedName}_types`);
 				let types: ts.Expression[];
 				// Check if has circles
@@ -578,7 +606,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.escapedName, vName);
+				mapEntityVar.set(entity, vName);
 				break;
 			}
 			case Kind.LIST: {
@@ -593,7 +621,7 @@ export function toGraphQL(
 				varId = childrenData[0]; // "undefined" means has circular to parents
 				if (varId == null) {
 					let refEntity = _getEntity(entity, isInput);
-					varId = mapEntityVar.get(refEntity.escapedName);
+					varId = mapEntityVar.get(refEntity);
 				}
 				break;
 			}
@@ -610,6 +638,8 @@ export function toGraphQL(
 				break;
 			}
 			case Kind.ENUM: {
+				// Deduplicate Entity Name
+				uniqueEntityName(entity);
 				let varName = f.createUniqueName(entity.escapedName);
 				varId = varName;
 				let entityConf: { [k in keyof GraphQLEnumTypeConfig]: any; } = {
@@ -629,10 +659,12 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.escapedName, varName);
+				mapEntityVar.set(entity, varName);
 				break;
 			}
 			case Kind.SCALAR: {
+				// Deduplicate Entity Name
+				uniqueEntityName(entity);
 				let varName = f.createUniqueName(entity.escapedName);
 				varId = varName;
 				let parserVar = _import(entity.parser);
@@ -653,7 +685,7 @@ export function toGraphQL(
 					)
 				);
 				// Add var
-				mapEntityVar.set(entity.escapedName, varName);
+				mapEntityVar.set(entity, varName);
 				break;
 			}
 			case Kind.BASIC_SCALAR: {
@@ -673,7 +705,7 @@ export function toGraphQL(
 					}
 				}
 				// Add entity var
-				mapEntityVar.set(entity.escapedName, varId as ts.Identifier);
+				mapEntityVar.set(entity, varId as ts.Identifier);
 				break;
 			}
 			default: {
@@ -787,7 +819,7 @@ export function toGraphQL(
 			tp = tp.type;
 		}
 		let entity = _getEntity(tp, isInput);
-		let varId: ts.Expression | undefined = mapEntityVar.get(entity.escapedName);
+		let varId: ts.Expression | undefined = mapEntityVar.get(entity);
 		if (varId == null) throw `Missing definition for entity "${entity.name}"`;
 		// wrap with list and requires
 		for (let i = 0, len = q.length; i < len; ++i) {
