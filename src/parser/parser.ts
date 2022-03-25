@@ -333,7 +333,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let p: Omit<InputField, 'type'> & { type: undefined } = {
 								kind: Kind.INPUT_FIELD,
 								name: entityName,
-								required: (node as ts.PropertyDeclaration).questionToken ? false : _isRequired(propertyType ?? nodeType),
+								required: defaultValue == null && !(node as ts.PropertyDeclaration).questionToken && _isRequired(propertyType ?? nodeType),
 								alias: fieldAlias,
 								idx: pDesc.ownedFieldsCount++,
 								className: className,
@@ -797,8 +797,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						if (
 							declaration.initializer == null ||
 							type == null ||
-							!ts.isTypeReferenceNode(type) ||
-							!type.typeArguments?.length
+							!ts.isTypeReferenceNode(type)
 						) continue;
 						let nodeName = declaration.name.getText();
 						//* Check type imported from tt-model
@@ -1092,6 +1091,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 											}
 										}
 									}
+									break;
 								}
 								//* Output resolver
 								case 'Resolver':
