@@ -120,6 +120,7 @@ export function parse(files: readonly string[], program: ts.Program) {
 						case 'resolvers':
 							/** Interpret methods as resolvers */
 							isResolversImplementation = true;
+							isInput = false;
 							break;
 						case 'ordered':
 							orderByName = true;
@@ -177,11 +178,13 @@ export function parse(files: readonly string[], program: ts.Program) {
 										let isResolversOf = resolverConfig === 'ResolversOf';
 										if (isInput === isResolversOf)
 											throw `Could not implement "${resolverConfig}" for ${isResolversOf ? 'output' : 'input'} only entities. at ${errorFile(srcFile, type)}`;
-										let t = type.typeArguments![0] as ts.TypeReferenceNode;
+										const typeName: ts.Node = (type.typeArguments![0] as ts.TypeReferenceNode).typeName;
+										const targetSym = typeChecker.getTypeAtLocation(typeName).symbol;
+										const targetType = ((targetSym?.valueDeclaration ?? targetSym.declarations?.[0]) as ts.InterfaceDeclaration)?.name;
 										// if (!ts.isTypeReferenceNode(t) || !typeChecker.getTypeFromTypeNode(t).isClassOrInterface())
 										// 	throw `Expected "${resolverConfig}" argument to reference a "class" or "interface" at ${errorFile(srcFile, t)}`;
 										// let typeName = typeChecker.getSymbolAtLocation(t.typeName)!.name;
-										(implementedEntities ??= []).push(_getNodeName(t.typeName, srcFile));
+										(implementedEntities ??= []).push(targetType == null ? _getNodeName(typeName, srcFile) : _getNodeName(targetType, targetType.getSourceFile()));
 										isInput = !isResolversOf;
 										break;
 									}
