@@ -229,8 +229,9 @@ export function parse(files: readonly string[], program: ts.Program) {
 						implementedEntities = [entityName];
 					}
 					// Resolve: First we check for INPUT and than for OUTPUT
-					for (let k = 0, isResolveInput = false; k < 2; k++) {
+					for (let k = 0, isResolveInput = true; k < 2; k++) {
 						// Escape if is explicitly input or output and we checking for other type
+						isResolveInput = !isResolveInput;
 						if (isInput === !isResolveInput) continue;
 						type ObjectType = InputObject | OutputObject;
 						let TARGET_MAP = isResolveInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
@@ -287,8 +288,6 @@ export function parse(files: readonly string[], program: ts.Program) {
 							let propType = typeChecker.getTypeOfSymbolAtLocation(s, node);
 							visitor.push(dec, propType, entity, srcFile, isResolveInput, s.name, isResolversImplementation, undefined, s);
 						}
-						// next: resolve input
-						isResolveInput = true;
 					}
 					break;
 				}
