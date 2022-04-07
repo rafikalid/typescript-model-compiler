@@ -1285,6 +1285,7 @@ export function toGraphQL(
 			body.push(
 				f.createReturnStatement(_createMethodCallExp(pipe[lastIndex]))
 			);
+			if (pipe[lastIndex].isAsync) useAsync = true; // Even pipeline is sync, it still return's promise
 
 			result = f.createFunctionExpression(
 				useAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
