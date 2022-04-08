@@ -1,8 +1,14 @@
 import { Kind } from "./kind";
+import { ScalarOptions } from 'tt-model';
 
 
 /** Nodes */
-export type Node = ObjectNode | FieldNode | ListNode | ScalarNode;
+export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
+	ListNode | ScalarNode | NameLessTypeNode | RefNode |
+	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode;
+
+/** Field possible types (string means reference) */
+export type FieldType = ListNode | NameLessTypeNode | RefNode | StaticValueNode;
 
 /** @abstract root node */
 export interface _Node {
@@ -45,7 +51,7 @@ export interface FieldNode extends _NamedNode {
 	/** Field index inside it's parent object */
 	idx: number;
 	/** Field alias */
-	alias: string | undefined;
+	alias?: string;
 	/** If field is required */
 	required: boolean;
 	/** Default value */
@@ -55,15 +61,18 @@ export interface FieldNode extends _NamedNode {
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
 	/** Name of the class, interface or type */
-	className: string | undefined;
+	className: string;
 	/** Content type: List or type name */
 	type: FieldType;
+	/** Method: resolver or validator */
+	method?: MethodNode
 }
 
 /** Method */
 export interface MethodNode extends Omit<FieldNode, 'kind'> {
 	kind: Kind.METHOD
-	params: Param[]
+	/** Params */
+	params: ParamNode[]
 	/** If this method is async (has promise) */
 	isAsync: boolean
 	/** is prototype or static method */
@@ -71,7 +80,7 @@ export interface MethodNode extends Omit<FieldNode, 'kind'> {
 }
 
 /** Method params */
-export interface Param extends _NamedNode {
+export interface ParamNode extends _NamedNode {
 	kind: Kind.PARAM
 	/** If param is required */
 	required: boolean;
@@ -87,8 +96,21 @@ export interface ListNode extends _Node {
 }
 
 /** Scalar */
-export interface ScalarNode extends _NamedNode {
+export interface ScalarNode extends _NamedNode, Record<keyof ScalarOptions<unknown>, Method> {
 	kind: Kind.SCALAR
+}
+
+/**
+ * Method
+ */
+export interface Method {
+	/**
+	 * Method full qualify name
+	 * @example intScalar.parse
+	 */
+	name: string
+	isAsync: boolean
+	filePath: string
 }
 
 /** Uname typ */
@@ -108,9 +130,6 @@ export interface StaticValueNode extends _NamedNode {
 	value: any
 }
 
-/** Field possible types (string means reference) */
-export type FieldType = ListNode | NameLessTypeNode | RefNode | StaticValueNode;
-
 /** ENUM */
 export interface EnumNode extends _NamedNode {
 	kind: Kind.ENUM;
@@ -121,6 +140,13 @@ export interface EnumNode extends _NamedNode {
 export interface EnumMemberNode extends _NamedNode {
 	kind: Kind.ENUM_MEMBER;
 	value: string | number;
+}
+
+/** Union */
+export interface UnionNode extends _NamedNode {
+	kind: Kind.UNION;
+	types: FieldType[];
+	resolver: Method;
 }
 
 /**

@@ -22,6 +22,8 @@ export enum Kind {
 	ENUM,
 	/** Enumeration member */
 	ENUM_MEMBER,
+	/** Union */
+	UNION,
 	/** Static value */
 	STATIC_VALUE,
 	/** Validator class using "ValidatorsOf<T>" */
