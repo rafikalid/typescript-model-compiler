@@ -4,12 +4,6 @@ import { Kind } from "./kind";
 /** Nodes */
 export type Node = ObjectNode | FieldNode | ListNode | ScalarNode;
 
-/** Each file is parsed alone */
-export interface FileNode {
-	filePath: string
-	nodes: Map<string, Node>
-}
-
 /** @abstract root node */
 export interface _Node {
 	kind: Kind;
@@ -39,7 +33,7 @@ export interface ObjectNode extends _NamedNode {
 	/** Fields */
 	fields: Map<string, FieldNode | MethodNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: string[]
+	annotations: Annotation[]
 	/** Is target a class */
 	isClass: boolean;
 }
@@ -59,7 +53,7 @@ export interface FieldNode extends _NamedNode {
 	/** Asserts */
 	asserts: string
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: string[]
+	annotations: Annotation[]
 	/** Name of the class, interface or type */
 	className: string | undefined;
 	/** Content type: List or type name */
@@ -146,4 +140,17 @@ export interface ValidatorClassNode extends _NamedNode {
  */
 export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
 	kind: Kind.RESOLVER_CLASS
+}
+
+
+/** Annotation */
+export interface Annotation {
+	/** Annotation name */
+	name: string
+	/** Annotation argument */
+	arg: string
+	/** Annotation file path */
+	path?: string
+	/** Is annotation from JSDoc or Decorator */
+	isJSDoc: boolean
 }
