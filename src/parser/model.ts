@@ -1,313 +1,149 @@
-//** PARSER MODEL
+import { Kind } from "./kind";
 
-import { DEFAULT_SCALARS } from "tt-model";
-/** Kinds */
-export enum Kind {
-	/** Input object */
-	INPUT_OBJECT,
 
-	/** Output Object */
-	OUTPUT_OBJECT,
+/** Nodes */
+export type Node = ObjectNode | FieldNode | ListNode | ScalarNode;
 
-	/** Helper: Input resolvers */
-	INPUT_RESOLVERS,
-
-	/** Helper: Output resolvers */
-	OUTPUT_RESOLVERS,
-
-	/** Input field */
-	INPUT_FIELD,
-	/** Output field */
-	OUTPUT_FIELD,
-
-	/** Param */
-	PARAM,
-
-	/** Enumeration */
-	ENUM,
-
-	/** Enum member */
-	ENUM_MEMBER,
-
-	/** List of sub entries */
-	LIST,
-
-	/** Multiple possible kinds */
-	UNION,
-
-	/** Scalar */
-	SCALAR,
-	/** Basic scalar */
-	BASIC_SCALAR,
-	/** Reference */
-	REF,
-
-	/** Formatted Input object */
-	FORMATTED_OUTPUT_OBJECT,
-	/** Formatted output object */
-	FORMATTED_INPUT_OBJECT,
-
-	/** Converter */
-	CONVERTER,
-
-	/** Function expression */
-	FUNCTION_EXPRESSION
+/** Each file is parsed alone */
+export interface FileNode {
+	filePath: string
+	nodes: Map<string, Node>
 }
 
-/** Node */
-export type Node =
-	| InputObject
-	| OutputObject
-	| Enum
-	| Union
-	| Scalar
-	| BasicScalar;
-/** Input nodes */
-export type InputNode =
-	| InputObject
-	| Enum
-	| Union
-	| Scalar
-	| BasicScalar;
-/** Output nodes */
-export type OutputNode =
-	| OutputObject
-	| Enum
-	| Union
-	| Scalar
-	| BasicScalar;
-// | ObjectLiteral;
-export type AllNodes = Node | InputField | OutputField | List | Reference | Param | ConvertObj | FunctionExpr;
-
-/** @abstract basic node */
+/** @abstract root node */
 export interface _Node {
 	kind: Kind;
-	/** Node's name: may contains special chars like | and <> */
-	name: string;
 	/** JS DOCS */
 	jsDoc: string[];
 	/** Deprecation message when exists */
 	deprecated: string | undefined;
-	/** Files where this entity found */
-	fileNames: String[]
+	/** code path where node exists, debug mode only */
+	paths: string[]
+	/** Is input or output or both (undefined) */
+	isInput: boolean | undefined
 }
 
-/** Output Object */
-export interface OutputObject extends _Node {
-	kind: Kind.OUTPUT_OBJECT;
-	/** Name without generic parameters */
-	escapedName: string | undefined;
+/** @abstract Named node */
+export interface _NamedNode {
+	/** Node's name: may contains special chars like | and <> */
+	name: string;
+}
+
+/** Object */
+export interface ObjectNode extends _NamedNode {
+	kind: Kind.OBJECT
 	/** inherited classes and interfaces */
 	inherit: string[] | undefined;
 	/** Do order fields by name */
 	orderByName: boolean | undefined;
 	/** Fields */
-	fields: Map<string, OutputField>;
-	/** Wrap object validation */
-	wrappers: MethodDescM[] | undefined
-	before: MethodDescM[] | undefined
-	after: MethodDescM[] | undefined
-	/** Owned fields count */
-	ownedFieldsCount: number
-	/** Converter */
-	convert: ConvertObj | undefined
-}
-
-/** Input Object  */
-export interface InputObject extends Omit<OutputObject, 'kind' | 'fields'> {
-	kind: Kind.INPUT_OBJECT;
-	/** Fields */
-	fields: Map<string, InputField>;
-}
-/** Convert object format */
-export interface ConvertObj extends MethodDescM {
-	kind: Kind.CONVERTER;
-	type: Reference | undefined;
-}
-
-
-/** Commons between input and output fields */
-interface _Field extends _Node {
-	/** Field index inside it's parent object */
-	idx: number;
-	/** Name of the class */
-	className: string | undefined;
-	/** Field alias */
-	alias: string | undefined;
-
-	/** If field is required */
-	required: boolean;
-	/** Content type: List or type name */
-	type: FieldType;
-	/** Default value */
-	defaultValue: any;
-}
-
-/** Input field */
-export interface InputField extends _Field {
-	kind: Kind.INPUT_FIELD;
-	/** Input Assert */
-	asserts: AssertOptions | undefined;
-	/** Input validator */
-	pipe: MethodDescriptor[];
-	/** custom function as validator */
-	validators: string[]
-}
-
-/** Object field */
-export interface OutputField extends _Field {
-	kind: Kind.OUTPUT_FIELD;
-	/** Resolver method */
-	method: MethodDescriptor | undefined;
-	/** Method main parameter */
-	param: Param | undefined; // Param is a reference, could not be array or any else.
-	/** Custom function as output resolver */
-	resolvers: string[]
-}
-
-
-/** Method descriptor minimal */
-export interface MethodDescM {
-	/** File name */
-	fileName: string;
-	/** class name */
-	className: string;
-	/** Method name */
-	name: string | undefined;
-	/** If this method is async (has promise) */
-	isAsync: boolean
-}
-/** Method descriptor */
-export interface MethodDescriptor extends MethodDescM {
-	/** is prototype or static method */
-	isStatic: boolean;
+	fields: Map<string, FieldNode | MethodNode>;
+	/** Annotations: [AnnotationName, AnnotationValue, ...] */
+	annotations: string[]
 	/** Is target a class */
 	isClass: boolean;
 }
 
-/** List */
-export interface List extends Omit<_Node, 'name'> {
-	kind: Kind.LIST;
+
+/** Field */
+export interface FieldNode extends _NamedNode {
+	kind: Kind.FIELD
+	/** Field index inside it's parent object */
+	idx: number;
+	/** Field alias */
+	alias: string | undefined;
+	/** If field is required */
 	required: boolean;
+	/** Default value */
+	defaultValue: string;
+	/** Asserts */
+	asserts: string
+	/** Annotations: [AnnotationName, AnnotationValue, ...] */
+	annotations: string[]
+	/** Name of the class, interface or type */
+	className: string | undefined;
+	/** Content type: List or type name */
 	type: FieldType;
 }
 
+/** Method */
+export interface MethodNode extends Omit<FieldNode, 'kind'> {
+	kind: Kind.METHOD
+	params: Param[]
+	/** If this method is async (has promise) */
+	isAsync: boolean
+	/** is prototype or static method */
+	isStatic: boolean;
+}
+
+/** Method params */
+export interface Param extends _NamedNode {
+	kind: Kind.PARAM
+	/** If param is required */
+	required: boolean;
+	/** Type */
+	type: FieldType;
+}
+
+/** List */
+export interface ListNode extends _Node {
+	kind: Kind.LIST
+	/** If list contains null or undefined entries */
+	required: boolean
+}
+
+/** Scalar */
+export interface ScalarNode extends _NamedNode {
+	kind: Kind.SCALAR
+}
+
+/** Uname typ */
+export interface NameLessTypeNode extends Omit<ObjectNode, 'kind' | 'inherit'> {
+	kind: Kind.NAME_LESS_TYPE
+}
+
+/** Reference */
+export interface RefNode extends _Node {
+	kind: Kind.REF
+}
+
+/** Static value */
+export interface StaticValueNode extends _NamedNode {
+	kind: Kind.STATIC_VALUE
+	type: string
+	value: any
+}
+
+/** Field possible types (string means reference) */
+export type FieldType = ListNode | NameLessTypeNode | RefNode | StaticValueNode;
 
 /** ENUM */
-export interface Enum extends _Node {
+export interface EnumNode extends _NamedNode {
 	kind: Kind.ENUM;
-	members: EnumMember[];
-	/** Escaped name to use with graphql */
-	escapedName: string;
+	members: EnumMemberNode[];
 }
 
 /** ENUM member */
-export interface EnumMember extends _Node {
+export interface EnumMemberNode extends _NamedNode {
 	kind: Kind.ENUM_MEMBER;
 	value: string | number;
 }
 
-/** UNION */
-export interface Union extends _Node {
-	kind: Kind.UNION;
-	/** TODO convert this to references to plain objects */
-	types: Reference[];
-	parser: MethodDescriptor | undefined;
-	/** Escaped name to use with graphql */
-	escapedName: string;
+/**
+ * Validator class
+ * implements ValidatorsOf<Entity>, ValidatorsOf<Helper<Entity>>, ValidatorsOf<Helper<any>>
+ */
+export interface ValidatorClassNode extends _NamedNode {
+	kind: Kind.VALIDATOR_CLASS,
+	/** Implemented entities including generics without "any" keywords */
+	entities: string[]
+	/** Implemented generic entities with "any" keyword */
+	anyGenerics: string[]
 }
-
-/** Assert options */
-export interface AssertOptions {
-	/** Min value, arr.length or string.length */
-	min?: string;
-	/** Max value, arr.length or string.length */
-	max?: string;
-	/** less than value, arr.length or string.length */
-	lt?: string;
-	/** greater than value, arr.length or string.length */
-	gt?: string;
-	/** less than or equals value, arr.length or string.length */
-	lte?: string;
-	/** greater than or equals value, arr.length or string.length */
-	gte?: string;
-	/** Value equals */
-	eq?: string;
-	/** Value not equals */
-	ne?: string;
-	/** arr.length or string.length */
-	length?: string;
-	/** Regular expression */
-	regex?: RegExp;
-}
-
-/** Scalar definition */
-export interface Scalar extends _Node {
-	kind: Kind.SCALAR;
-	parser: MethodDescriptor;
-	/** Escaped name to use with graphql */
-	escapedName: string;
-}
-
-/** Basic scalar */
-export interface BasicScalar extends _Node {
-	kind: Kind.BASIC_SCALAR;
-	name: typeof DEFAULT_SCALARS[number];
-	/** Escaped name to use with graphql */
-	escapedName: string;
-}
-
-/** Generic reference or operation: Example: Page<User>, Partial<Booking> */
-export interface Reference {
-	kind: Kind.REF;
-	/** Reference name */
-	name: string;
-	/** source file name. Used for debugger */
-	fileName: string;
-	// /** Params in case of generic type */
-	// params: FieldType[] | undefined;
-	// /** Node: enables us to resolve fields for dynamic fields (like Omit and Partial) */
-	// visibleFields:
-	// | Map<
-	// 	string,
-	// 	{
-	// 		flags: ts.SymbolFlags;
-	// 		className: string;
-	// 	}
-	// >
-	// | undefined;
-}
-
-/** Field possible types (string means reference) */
-export type FieldType = List | Reference;
-
-/** Param */
-export interface Param extends _Node {
-	kind: Kind.PARAM;
-	type: Reference | undefined;
-}
-
-
-/** Root config interface */
-export interface RootConfig {
-	before: MethodDescM[];
-	after: MethodDescM[];
-	wrappers: MethodDescM[];
-}
-
-/** Function expression or declaration */
-export interface FunctionExpr extends _Node {
-	kind: Kind.FUNCTION_EXPRESSION,
-	/** File name */
-	fileName: string;
-	/** Method name */
-	name: string;
-	/** If this method is async (has promise) */
-	isAsync: boolean;
-	/** Method main parameter */
-	param: Param | undefined; // Param is a reference, could not be array or any else.
-	/** If field is required */
-	required: boolean;
-	/** Content type: List or type name */
-	type: FieldType;
+/**
+ * Resolver class
+ * implements ResolversOf<Entity>, ResolversOf<Helper<Entity>>, ResolversOf<Helper<any>>
+ */
+export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
+	kind: Kind.RESOLVER_CLASS
 }
