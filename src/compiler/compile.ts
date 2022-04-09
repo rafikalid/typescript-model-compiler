@@ -1,8 +1,10 @@
+import { PACKAGE_NAME } from "@src/config";
 import { info } from "@utils/log";
 import ts from "typescript";
 import { compileFiles } from "./compile-files";
 import { ScanFile, TargetExtension } from "./interface";
 import { _createProgram } from "./program";
+import { resolvePatterns } from "./resolve-patterns";
 import { parseTsConfig } from "./tsconfig-parser";
 
 /** Compiler */
@@ -44,30 +46,47 @@ export class Compiler {
 		//* Load file data & paths
 		info('>> Load Content');
 		files = this.adjustFiles(files);
+		const filePaths: Set<string> = new Set(files.keys());
 
 		//* Program
 		info('>> Create Program');
 		const program = _createProgram(files, this.#compilerOptions, encoding);
 
-		//* Compile files
-		info('>> Compiling');
-		const compiled = compileFiles(program, files);
+		//* Load target files from patterns
+		info(`Load Patterns and files >>`);
+		const mapPatterns = this.resolvePatterns(program, filePaths.values());
 
-		//* Print files
-		info('>> Print files');
-		let result = this.print(compiled);
+		throw 'END';
 
-		//* Transpile
-		if (transpileToJS) {
-			info(`>> Transpile to JavaScript`);
-			result = this.transpile(result);
-		}
-		return result;
+		// //* Compile files
+		// info('>> Compiling');
+		// const compiled = compileFiles(program, files);
+
+		// //* Print files
+		// info('>> Print files');
+		// let result = this.print(compiled);
+
+		// //* Transpile
+		// if (transpileToJS) {
+		// 	info(`>> Transpile to JavaScript`);
+		// 	result = this.transpile(result);
+		// }
+		// return result;
+	}
+
+	/** Resolve patterns */
+	resolvePatterns(program: ts.Program, files: IterableIterator<string>) {
+		return resolvePatterns(program, files, {
+			'tt-model': {
+				className: 'Model',
+				methods: new Set(['scan', 'scanGraphQL'])
+			}
+		});
 	}
 
 	/** Adjust files and add dependents */
 	adjustFiles(files: string[] | Map<string, string | undefined>): Map<string, string | undefined> {
-		const filesPath: Set<string> = new Set(Array.isArray(files) ? files : files.keys());
+		// const filesPath: Set<string> = new Set(Array.isArray(files) ? files : files.keys());
 		if (Array.isArray(files)) {
 			const mp: Map<string, string | undefined> = new Map();
 			for (let i = 0, len = files.length; i < len; ++i) mp.set(files[i], undefined);
@@ -80,7 +99,6 @@ export class Compiler {
 
 	/** print files */
 	print(files: Map<string, ts.SourceFile>): string[] {
-		const compilerOptions = this.#compilerOptions;
 		const tsPrinter = ts.createPrinter();
 		// //* Resolve imports
 		// if (targetExtension != null)

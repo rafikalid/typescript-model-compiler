@@ -7,6 +7,9 @@ export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
 	ListNode | ScalarNode | NameLessTypeNode | RefNode |
 	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode;
 
+/** Root nodes */
+export type RootNode = ObjectNode | ListNode | ScalarNode | EnumNode;
+
 /** Field possible types (string means reference) */
 export type FieldType = ListNode | NameLessTypeNode | RefNode | StaticValueNode;
 
