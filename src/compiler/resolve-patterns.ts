@@ -1,3 +1,5 @@
+import { getNodePath } from "@utils/node-path";
+import { ModelError, ModelErrorCode } from "tt-model";
 import ts from "typescript";
 
 /**
@@ -9,8 +11,8 @@ export function resolvePatterns(
 	files: IterableIterator<string>,
 	libs: Record<string, MethodDesc>
 ): ResolvedPattern[] {
-	console.log('Resolve patterns ********************')
 	const result: ResolvedPattern[] = [];
+	const typeChecker = program.getTypeChecker();
 	//* Selected all methods
 	const methods = new Set();
 	for (let k in libs) {
@@ -59,14 +61,24 @@ export function resolvePatterns(
 			const node = Queue[i];
 			if (ts.isCallExpression(node)) {
 				let expr = node.expression;
-				let info: MethodDesc;
+				let importSpecifier: ts.Node | undefined;
+				let lib: MethodDesc;
+				let methodName: string;
 				if (
 					ts.isPropertyAccessExpression(expr) &&
+					(methodName = expr.name.getText()) &&
+					methods.has(methodName) &&
 					ts.isIdentifier(expr.expression) &&
-					methods.has(expr.name.getText())
+					(importSpecifier = typeChecker.getSymbolAtLocation(expr.expression)?.declarations?.[0]) &&
+					ts.isImportSpecifier(importSpecifier) &&
+					(lib = libs[importSpecifier.parent.parent.parent.moduleSpecifier.getText().slice(1, -1)]) &&
+					lib.className === (importSpecifier.propertyName ?? importSpecifier.name).getText() &&
+					lib.methods.has(methodName)
 				) {
-					let propName = expr.name.getText();
-					console.log('--- FOUND:', propName);
+					const info = lib.resolve(node, methodName, srcFile);
+					if (info.files.length === 0)
+						throw new Error(`Empty file result for pattern "${info.pattern}" at: ${getNodePath(node)}`);
+					result.push(info);
 				}
 			} else {
 				Queue.push(...node.getChildren());
@@ -77,14 +89,36 @@ export function resolvePatterns(
 }
 
 /** Result schema */
-export interface ResolvedPattern {
-	pattern: string
+export type ResolvedPattern = ResolvedPatternScan | ResolvedPatternGraphQL
+/** Result schema */
+export interface _ResolvedPattern {
 	filePath: string
+	lib: string
+	methodName: string
+	pattern: string
 	node: ts.Node
+	/** Resolved files via Glob pattern */
+	files: string[]
+}
+
+/** Graphql pattern */
+export interface ResolvedPatternGraphQL extends _ResolvedPattern {
+	lib: 'tt-model'
+	methodName: 'scanGraphQL'
+	schemaEntityName: string
+	contextEntityName: string
+	//TODO resolve jsDoc annotations
+}
+
+/** Scan pattern */
+export interface ResolvedPatternScan extends _ResolvedPattern {
+	lib: 'tt-model'
+	methodName: 'scan'
 }
 
 /** Method type */
 export interface MethodDesc {
 	className: string,
-	methods: Set<string>
+	methods: Set<string>,
+	resolve: (node: ts.CallExpression, methodName: string, srcFile: ts.SourceFile) => ResolvedPattern
 }
