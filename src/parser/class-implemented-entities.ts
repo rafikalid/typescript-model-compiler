@@ -24,7 +24,7 @@ export function getImplementedEntities(typeChecker: ts.TypeChecker, tsEntity: ts
 				case 'ValidatorsOf':
 				case 'ResolversOf': {
 					const isInterface = tsEntity.kind === ts.SyntaxKind.InterfaceDeclaration;
-					if (!isInterface)
+					if (isInterface)
 						throw `An interface could not extends "${refName}" at: ${getNodePath(type)}`;
 					const targetType = type.typeArguments?.[0];
 					if (targetType == null)

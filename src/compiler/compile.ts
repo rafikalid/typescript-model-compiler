@@ -9,6 +9,7 @@ import { ResolvedPattern, resolvePatterns } from "./resolve-patterns";
 import { parseTsConfig } from "./tsconfig-parser";
 import { resolveFilePattern } from "@utils/file-pattern";
 import { parseSchema } from "@parser/parse";
+import { printTree } from "@utils/console-print";
 
 /** Compiler */
 export class Compiler {
@@ -60,14 +61,12 @@ export class Compiler {
 		const mapPatterns = this.resolvePatterns(program, filePaths.values());
 
 		//* Parse patterns
-		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
-			const parsed = this._parse(program, mapPatterns[i].files);
-		}
-
 		info(`Parse >>`);
-
-
-		console.log('PATTERNS: ', mapPatterns);
+		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
+			console.log('--- PATTERN:', mapPatterns[i].pattern);
+			const parsed = this._parse(program, mapPatterns[i].files);
+			console.log(printTree(parsed, '\t'));
+		}
 
 		throw 'END';
 

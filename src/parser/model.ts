@@ -1,5 +1,6 @@
 import { Kind } from "./kind";
 import { ScalarOptions } from 'tt-model';
+import ts from "typescript";
 
 
 /** Nodes */
@@ -18,16 +19,16 @@ export interface _Node {
 	kind: Kind;
 	/** JS DOCS */
 	jsDoc: string[];
-	/** Deprecation message when exists */
-	deprecated: string | undefined;
+	/** jsDocTags */
+	jsDocTags: Map<string, (string | undefined)[]> | undefined
 	/** code path where node exists, debug mode only */
-	paths: string[]
+	tsNodes: ts.Node[]
 	/** Is input or output or both (undefined) */
-	isInput: boolean | undefined
+	isInput: boolean
 }
 
 /** @abstract Named node */
-export interface _NamedNode {
+export interface _NamedNode extends _Node {
 	/** Node's name: may contains special chars like | and <> */
 	name: string;
 }
@@ -36,11 +37,13 @@ export interface _NamedNode {
 export interface ObjectNode extends _NamedNode {
 	kind: Kind.OBJECT
 	/** inherited classes and interfaces */
-	inherit: string[] | undefined;
+	inherit: string[];
+	/** jsDoc tags */
+	jsDocTags: Map<string, (string | undefined)[]>
 	/** Do order fields by name */
-	orderByName: boolean | undefined;
+	// orderByName: boolean | undefined;
 	/** Fields */
-	fields: Map<string, FieldNode | MethodNode>;
+	fields: Map<string, FieldNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
 	/** Is target a class */
@@ -53,16 +56,12 @@ export interface FieldNode extends _NamedNode {
 	kind: Kind.FIELD
 	/** Field index inside it's parent object */
 	idx: number;
-	/** Field alias */
-	alias?: string;
 	/** If field is required */
 	required: boolean;
-	/** Default value */
-	defaultValue: string;
-	/** Asserts */
-	asserts: string
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
+	/** jsDoc tags */
+	jsDocTags: Map<string, (string | undefined)[]> | undefined
 	/** Name of the class, interface or type */
 	className: string;
 	/** Content type: List or type name */
@@ -72,14 +71,20 @@ export interface FieldNode extends _NamedNode {
 }
 
 /** Method */
-export interface MethodNode extends Omit<FieldNode, 'kind'> {
+export interface MethodNode {
 	kind: Kind.METHOD
+	/** Class name */
+	class: string
+	/** Field name */
+	name: string
 	/** Params */
 	params: ParamNode[]
 	/** If this method is async (has promise) */
 	isAsync: boolean
 	/** is prototype or static method */
 	isStatic: boolean;
+	/** tsNode */
+	tsNode: ts.MethodDeclaration;
 }
 
 /** Method params */
@@ -160,8 +165,10 @@ export interface ValidatorClassNode extends _NamedNode {
 	kind: Kind.VALIDATOR_CLASS,
 	/** Implemented entities including generics without "any" keywords */
 	entities: string[]
-	/** Implemented generic entities with "any" keyword */
-	anyGenerics: string[]
+	/** Fields */
+	fields: Map<string, FieldNode>;
+	/** Annotations: [AnnotationName, AnnotationValue, ...] */
+	annotations: Annotation[]
 }
 /**
  * Resolver class

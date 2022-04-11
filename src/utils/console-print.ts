@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { getNodePath } from './node-path';
 
 /** Print object and map into console as tree */
 export function printTree(root: any, tab: string) {
@@ -22,12 +23,14 @@ function _replacer(k: string, v: any) {
 		});
 		return r;
 	} else if (v instanceof Set) return Array.from(v);
-	else if (
-		k === 'node' &&
-		typeof v === 'object' &&
-		typeof v?.kind === 'number'
-	)
-		return '<TS.REF>';
+	else if (k === 'tsNodes') return (v as any[]).map(e => getNodePath(e))
+	else if (k === 'tsNode') return getNodePath(v);
+	// else if (
+	// 	// k === 'node' &&
+	// 	typeof v === 'object' &&
+	// 	typeof v?.kind === 'number'
+	// )
+	// 	return '<TS.REF>';
 	else return v;
 }
 
