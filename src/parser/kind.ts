@@ -4,8 +4,6 @@
 export enum Kind {
 	/** Object */
 	OBJECT,
-	/** Name less type */
-	NAME_LESS_TYPE,
 	/** Object field */
 	FIELD,
 	/** Method */

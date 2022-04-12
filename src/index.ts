@@ -1,3 +1,3 @@
-export * from '@adapters/gulp';
+export { GulpAdapter } from '@adapters/gulp';
 
 export * from '@compiler/compile';

@@ -11,7 +11,8 @@ import { minifyJs } from './minifyjs';
 const { src, dest, lastRun } = Gulp;
 // import {transform} from 'ts-transform-import-path-rewrite'
 
-const isProd = process.argv.includes('--prod');
+//TODO revert this
+const isProd = false; // process.argv.includes('--prod');
 
 const tsPathFix = new Converter('tsconfig.json');
 

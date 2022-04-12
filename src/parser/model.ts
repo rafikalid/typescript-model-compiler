@@ -1,18 +1,18 @@
 import { Kind } from "./kind";
-import { ScalarOptions } from 'tt-model';
+import { Scalar } from 'tt-model';
 import ts from "typescript";
 
 
 /** Nodes */
 export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
-	ListNode | ScalarNode | NameLessTypeNode | RefNode |
+	ListNode | ScalarNode | RefNode |
 	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode;
 
 /** Root nodes */
 export type RootNode = ObjectNode | ListNode | ScalarNode | EnumNode;
 
 /** Field possible types (string means reference) */
-export type FieldType = ListNode | NameLessTypeNode | RefNode | StaticValueNode;
+export type FieldType = ListNode | RefNode | StaticValueNode | undefined;
 
 /** @abstract root node */
 export interface _Node {
@@ -63,7 +63,7 @@ export interface FieldNode extends _NamedNode {
 	/** jsDoc tags */
 	jsDocTags: Map<string, (string | undefined)[]> | undefined
 	/** Name of the class, interface or type */
-	className: string;
+	className: string | undefined;
 	/** Content type: List or type name */
 	type: FieldType;
 	/** Method: resolver or validator */
@@ -101,10 +101,12 @@ export interface ListNode extends _Node {
 	kind: Kind.LIST
 	/** If list contains null or undefined entries */
 	required: boolean
+	/** Content type: List or type name */
+	type: FieldType;
 }
 
 /** Scalar */
-export interface ScalarNode extends _NamedNode, Record<keyof ScalarOptions<unknown>, Method> {
+export interface ScalarNode extends _NamedNode, Record<keyof Scalar<unknown>, Method> {
 	kind: Kind.SCALAR
 }
 
@@ -121,13 +123,8 @@ export interface Method {
 	filePath: string
 }
 
-/** Uname typ */
-export interface NameLessTypeNode extends Omit<ObjectNode, 'kind' | 'inherit'> {
-	kind: Kind.NAME_LESS_TYPE
-}
-
 /** Reference */
-export interface RefNode extends _Node {
+export interface RefNode extends _NamedNode {
 	kind: Kind.REF
 }
 
