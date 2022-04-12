@@ -12,7 +12,7 @@ export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
 export type RootNode = ObjectNode | ListNode | ScalarNode | EnumNode;
 
 /** Field possible types (string means reference) */
-export type FieldType = ListNode | RefNode | StaticValueNode | undefined;
+export type FieldType = RefNode | StaticValueNode | undefined;
 
 /** @abstract root node */
 export interface _Node {
@@ -97,7 +97,7 @@ export interface ParamNode extends _NamedNode {
 }
 
 /** List */
-export interface ListNode extends _Node {
+export interface ListNode extends _NamedNode {
 	kind: Kind.LIST
 	/** If list contains null or undefined entries */
 	required: boolean
@@ -126,13 +126,14 @@ export interface Method {
 /** Reference */
 export interface RefNode extends _NamedNode {
 	kind: Kind.REF
+	isAsync: boolean
 }
 
 /** Static value */
 export interface StaticValueNode extends _NamedNode {
 	kind: Kind.STATIC_VALUE
-	type: string
-	value: any
+	value: string | number
+	isAsync: boolean
 }
 
 /** ENUM */

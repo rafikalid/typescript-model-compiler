@@ -3,7 +3,7 @@ import ts from "typescript";
 import { getImplementedEntities, HelperClass } from "./class-implemented-entities";
 import { isAsync } from "./is-async";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldNode, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull } from "./utils";
 
 /** 
@@ -23,6 +23,8 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	const RESOLVERS: ResolverClassNode[] = [];
 	const VALIDATORS: ValidatorClassNode[] = [];
 	const LITERAL_OBJECTS: LiteralObject[] = [];
+	/** Save reference for check */
+	const REFERENCES: Set<string> = new Set();
 	//* Prepare queue
 	const Q: QueueItem[] = [];
 	for (let i = 0, len = files.length; i < len; ++i) {
@@ -100,6 +102,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 							}
 							else if (jsDocTags.has('resolvers')) {
 								isImplementation = true; // If methods are resolvers or entity methods
+								if (isInput) continue rootLoop;// Not an input class
 								if (jsDocTags.has('entity'))
 									throw `@entity and @resolvers are exclusive. at ${getNodePath(tsNode)}`;
 							}
@@ -204,6 +207,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 				}
 				case ts.SyntaxKind.PropertySignature:
 				case ts.SyntaxKind.MethodDeclaration:
+				case ts.SyntaxKind.MethodSignature:
 				case ts.SyntaxKind.PropertyDeclaration: {
 					const propertyNode = tsNode as ts.PropertySignature | ts.MethodDeclaration | ts.PropertyDeclaration;
 					if (parentNode == null) continue rootLoop;
@@ -216,7 +220,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 					if (entityName == null)
 						throw `Missing name for property at ${getNodePath(tsNode)}`;
 					const className = (propertyNode.parent as ts.ClassLikeDeclaration).name?.getText();
-					const isMethod = tsNode.kind === ts.SyntaxKind.MethodDeclaration;
+					const isMethod = tsNode.kind === ts.SyntaxKind.MethodSignature || tsNode.kind === ts.SyntaxKind.MethodDeclaration;
 					// Check type
 					if (propertyNode.type == null) {
 						if (isMethod) throw `To minimize errors, please define explicitly the return value for ${parentNode.name}.${entityName} at ${getNodePath(tsNode)}`;
@@ -269,6 +273,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 							idx: propertyNode.parent.getChildren().indexOf(propertyNode),
 							type: undefined
 						};
+						parentNode.fields.set(entityName, field);
 					} else {
 						if (field.method != null && method)
 							throw `Duplicate ${isInput ? 'validator' : 'resolver'} for ${parentNode.name}.${entityName} at ${getNodePath(field.method.tsNode)} and ${getNodePath(method.tsNode)}`;
@@ -296,7 +301,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 					if (parentNode == null || parentNode.kind != Kind.METHOD)
 						throw `Expected parentNode for PARAM as METHOD or FUNCTION. get ${parentNode == null ? 'undefined' : Kind[parentNode.kind]} at: ${getNodePath(tsNode)}`;
 					const paramNode = tsNode as ts.ParameterDeclaration;
-					const isOptional = paramNode.questionToken == null || paramNode.type == null ||
+					const isOptional = paramNode.questionToken != null || paramNode.type == null ||
 						doesTypeHaveNull(typeChecker, typeChecker.getTypeFromTypeNode(paramNode.type));
 					const param: ParamNode = {
 						kind: Kind.PARAM,
@@ -329,25 +334,55 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 						parentNode.kind !== Kind.PARAM
 					)
 						throw `Unexpected parentNode "${Kind[parentNode.kind]}"`;
-					console.log('========================', Kind[parentNode.kind], ' ::', (parentNode as FieldNode).name);
-					console.log('=>', _getNodeName(tsNode));
-					// const unionNode = tsNode as ts.UnionTypeNode;
-					// const f = ts.factory;
-					// const awaitedType = f.createTypeReferenceNode(
-					// 	f.createIdentifier("Awaited"),
-					// 	[tsNode as ts.TypeNode]
-					// );
-					// const awaitedType = rmPromises(typeChecker, unionNode);
-					// console.log('sa>>', _getNodeName(awaitedType));
-					// rmPromises(typeChecker, awaitedType);
-					// const tt = typeChecker.getTypeFromTypeNode(tsNode as ts.TypeNode);
-					const t2 = typeChecker.getNonNullableType(tsNodeType);
-					console.log('===tsNodeType==>tps: ', typeChecker.typeToString(tsNodeType));
-					console.log('===s==>tps: ', typeChecker.typeToString(t2));
-					// console.log('result: >', cleanType(typeChecker, tt).text);
-					// const t = typeChecker.typeToTypeNode(typeChecker.getTypeAtLocation(awaitedType), undefined, undefined);
-					// console.log(t == null ? ' >shit<' : _getNodeName(t));
-					//TODO here ----------------------------
+					//* Remove null, undefined and Promise
+					const cleanResult = cleanType(typeChecker, tsNodeType);
+					const types = cleanResult.types;
+					const typesLen = types.length;
+					if (typesLen === 0)
+						throw `Field has empty type: "${_getNodeName(tsNode)}" at ${getNodePath(tsNode)}`;
+					const typeName = types
+						.map(t => typeChecker.typeToString(t))
+						.sort(_typeSort)
+						.join('|');
+					let staticValue: string | number | undefined
+					if (typesLen == 1) {
+						// Check if static value
+						const tp = types[0];
+						const dec = tp.symbol?.valueDeclaration;
+						if (dec == null) { }
+						else if (dec.kind === ts.SyntaxKind.EnumMember)
+							staticValue = typeChecker.getConstantValue(dec as ts.EnumMember);
+						else if (dec.kind === ts.SyntaxKind.NumericLiteral)
+							staticValue = Number((dec as ts.NumericLiteral).text);
+						else if (dec.kind === ts.SyntaxKind.StringLiteral)
+							staticValue = (dec as ts.StringLiteral).text;
+					}
+					//* Add as reference
+					let tpRef: FieldType;
+					if (staticValue == null) {
+						tpRef = {
+							kind: Kind.REF,
+							isInput,
+							jsDoc,
+							jsDocTags,
+							name: typeName,
+							tsNodes: [tsNode],
+							isAsync: cleanResult.hasPromise
+						};
+						REFERENCES.add(typeName);
+					} else {
+						tpRef = {
+							kind: Kind.STATIC_VALUE,
+							isInput,
+							jsDoc,
+							jsDocTags,
+							isAsync: cleanResult.hasPromise,
+							name: typeName,
+							value: staticValue,
+							tsNodes: [tsNode]
+						};
+					}
+					parentNode.type = tpRef;
 					break;
 				}
 				case ts.SyntaxKind.StringKeyword:
@@ -368,41 +403,48 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 						jsDoc,
 						jsDocTags,
 						name: _getNodeName(tsNode),
-						tsNodes: [tsNode]
+						tsNodes: [tsNode],
+						isAsync: false
 					};
 					parentNode.type = type;
 					break;
 				}
 				case ts.SyntaxKind.ArrayType: {
-					if (parentNode == null) continue rootLoop;
-					if (
-						parentNode.kind !== Kind.FIELD &&
-						parentNode.kind !== Kind.LIST &&
-						parentNode.kind !== Kind.PARAM
-					)
-						throw `Unexpected parent node "${Kind[parentNode.kind]}" for "ArrayType" at: ${getNodePath(tsNode)}`;
-					const tsArray = tsNode as ts.ArrayTypeNode;
-					const arrEl = tsArray.elementType;
-					const arrType = (tsNodeType as ts.TypeReference).typeArguments?.[0]!;
-					const isOptional = doesTypeHaveNull(typeChecker, arrType);
-					const listNode: ListNode = {
-						kind: Kind.LIST,
-						isInput,
-						jsDoc,
-						jsDocTags,
-						required: !isOptional,
-						tsNodes: [tsNode],
-						type: undefined
-					};
-					parentNode.type = listNode;
-					Q.push({
-						isImplementation,
-						isInput,
-						tsNode: arrEl, //_nodeType(arrEl, arrType),
-						tsNodeType: arrType,
-						entityName,
-						parentNode: listNode
-					});
+					// if (parentNode == null) continue rootLoop;
+					// if (
+					// 	parentNode.kind !== Kind.FIELD &&
+					// 	parentNode.kind !== Kind.LIST &&
+					// 	parentNode.kind !== Kind.PARAM
+					// )
+					// 	throw `Unexpected parent node "${Kind[parentNode.kind]}" for "ArrayType" at: ${getNodePath(tsNode)}`;
+					const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+					const entityName = typeChecker.typeToString(tsNodeType);
+					if (!targetMap.has(entityName)) {
+						const tsArray = tsNode as ts.ArrayTypeNode;
+						const arrEl = tsArray.elementType;
+						const arrType = (tsNodeType as ts.TypeReference).typeArguments?.[0]!;
+						const isOptional = doesTypeHaveNull(typeChecker, arrType);
+						const listNode: ListNode = {
+							kind: Kind.LIST,
+							isInput,
+							jsDoc,
+							jsDocTags,
+							required: !isOptional,
+							tsNodes: [tsNode],
+							name: typeChecker.typeToString(arrType),
+							type: undefined
+						};
+						targetMap.set(entityName, listNode);
+						// parentNode.type = listNode;
+						Q.push({
+							isImplementation,
+							isInput,
+							tsNode: arrEl, //_nodeType(arrEl, arrType),
+							tsNodeType: arrType,
+							entityName,
+							parentNode: listNode
+						});
+					}
 					break;
 				}
 				case ts.SyntaxKind.EnumDeclaration: {
@@ -476,7 +518,8 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 						isInput,
 						jsDoc,
 						jsDocTags,
-						tsNodes: [tsNode]
+						tsNodes: [tsNode],
+						isAsync: false
 					};
 					parentNode.type = ref;
 					LITERAL_OBJECTS.push({ entity, isInput, ref });
@@ -600,6 +643,11 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 				name: (importSpecifier.propertyName ?? importSpecifier.name).getText()
 			}
 		}
+	}
+
+	/** Sort type as union */
+	function _typeSort(a: string, b: string): number {
+		return a.localeCompare(b);
 	}
 }
 

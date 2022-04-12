@@ -5,15 +5,22 @@ const IS_OF_TYPE_NULL = ts.TypeFlags.Undefined | ts.TypeFlags.Null;
  * Check if a field or param or type are required
  */
 export function doesTypeHaveNull(typeChecker: ts.TypeChecker, nodeType: ts.Type): boolean {
-	//* Basic check
-	if (nodeType.flags & IS_OF_TYPE_NULL) return true;
+	let typeName: string|undefined;
 	//* Union
-	let t = typeChecker.getNullableType(nodeType, nodeType.flags);
-	if (t.flags & IS_OF_TYPE_NULL) return true;
-	//* Promise
-	// t = rmPromises(typeChecker, nodeType);
-	// if (t.flags & IS_OF_TYPE_NULL) return true;
-	//* has not null
+	if(nodeType.isUnion())
+		return nodeType.types.some(t=> doesTypeHaveNull(typeChecker, t));
+	//* Basic check
+	else if(
+		(nodeType.flags & IS_OF_TYPE_NULL) &&
+		(typeName= typeChecker.typeToString(nodeType)) &&
+		(typeName==='undefined' || typeName==='null')
+	)
+		return true;
+	else if(nodeType.symbol?.name === 'Promise'){
+		const tp = (nodeType as ts.TypeReference).typeArguments?.[0];
+		if(tp!=null)
+			return doesTypeHaveNull(typeChecker, tp);
+	}
 	return false;
 }
 
@@ -21,20 +28,24 @@ export function doesTypeHaveNull(typeChecker: ts.TypeChecker, nodeType: ts.Type)
 /**
  * Remove promises and null values
  */
-export function cleanType(typechecker: ts.TypeChecker, type: ts.Type) {
+export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
 	let hasPromise= false;
-	let hasNullValue= false;
 	const result: ts.Type[] = [];
-	const queue: ts.Type[] = [type];
+	const queue: ts.Type[] = [typeChecker.getNonNullableType(type)];
+	let typeName:string | null
 	while (queue.length > 0) {
-		let tp: ts.Type | undefined = queue.pop()!;
-		if(tp.isIntersection()) result.push(tp);
-		else if(tp.isUnion()){
-			console.log('===UNION=====')
-			queue.push(...tp.types);
+		const tp = queue.pop()!;
+		if(tp.isIntersection() || tp.isClassOrInterface()){
+			result.push(tp); // only resolve real type format
+		}else if(tp.isUnion()){
+			// Fix union issue
+			typeName= typeChecker.typeToString(tp);
+			if(typeName.includes('|')) queue.push(...tp.types);
+			else result.push(tp);
 		} else if (tp.symbol?.name === 'Promise') {
-			tp = (tp as ts.TypeReference).typeArguments?.[0];
-			if (tp != null) queue.push(tp);
+			hasPromise= true;
+			const tp2 = (tp as ts.TypeReference).typeArguments?.[0];
+			if (tp2 != null) queue.push(typeChecker.getNonNullableType(tp2));
 		} else {
 			result.push(tp);
 		}
@@ -42,7 +53,7 @@ export function cleanType(typechecker: ts.TypeChecker, type: ts.Type) {
 
 	return {
 		types: result,
-		text: result.map(t=> typechecker.typeToString(t)).join('|')
+		hasPromise
 	}
 }
 // export function rmPromises(type: ts.TypeNode): ts.TypeNode {

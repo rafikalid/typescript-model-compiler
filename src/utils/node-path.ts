@@ -13,7 +13,6 @@ export function getNodePath(node: ts.Node | ts.Node[]): string {
 			return `${srcFile.fileName}:${line}:${character}`;
 		}
 	} catch (err: any) {
-		console.error('NODE-PATH-ERROR>>', err);
 		return `<ERR:${err.message}>`;
 	}
 }
