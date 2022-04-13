@@ -172,6 +172,14 @@ export class Compiler {
 	 * Parse files
 	 */
 	_parse(program: ts.Program, files: string[]) {
-		return parseSchema(program, files);
+		return parseSchema(this, program, files);
+	}
+
+	/**
+	 * Check package name
+	 * Utils for child packages
+	 */
+	_isPackageName(packageName: string) {
+		return packageName === 'tt-model';
 	}
 }

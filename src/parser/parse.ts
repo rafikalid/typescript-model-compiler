@@ -1,15 +1,14 @@
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
-import { getImplementedEntities, HelperClass } from "./class-implemented-entities";
-import { isAsync } from "./is-async";
+import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull } from "./utils";
 
 /** 
  * Parse schema
  */
-export function parseSchema(program: ts.Program, files: readonly string[]) {
+export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[]) {
 	//* Prepare
 	const typeChecker = program.getTypeChecker();
 	const tsNodePrinter = ts.createPrinter({
@@ -20,8 +19,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	const IGNORED_ENTITIES: Map<string, IgnoredEntity[]> = new Map();
 	const INPUT_ENTITIES: Map<string, RootNode> = new Map();
 	const OUTPUT_ENTITIES: Map<string, RootNode> = new Map();
-	const RESOLVERS: ResolverClassNode[] = [];
-	const VALIDATORS: ValidatorClassNode[] = [];
+	const HELPER_CLASSES: (ResolverClassNode | ValidatorClassNode | ScalarNode | UnionNode)[] = [];
 	const LITERAL_OBJECTS: LiteralObject[] = [];
 	/** Save reference for check */
 	const REFERENCES: Set<string> = new Set();
@@ -90,103 +88,111 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 						continue rootLoop;
 					}
 					//* Get implemented or inherited entities
-					const implemented = getImplementedEntities(typeChecker, entityNode, _getNodeName);
+					const implemented = _getImplementedEntities(entityNode);
 					let entity: Node | undefined;
 					let isImplementation: boolean; // If is @entity or @resolver or validators
-					switch (implemented.type) {
-						case HelperClass.ENTITY:
-							// Check if has @entity jsDoc tag
-							if (jsDocTags == null) {
-								_ignoreEntity(entityName, '@entity', tsNode);
-								continue rootLoop;
-							}
-							else if (jsDocTags.has('resolvers')) {
-								isImplementation = true; // If methods are resolvers or entity methods
-								if (isInput) continue rootLoop;// Not an input class
-								if (jsDocTags.has('entity'))
-									throw `@entity and @resolvers are exclusive. at ${getNodePath(tsNode)}`;
-							}
-							else if (jsDocTags.has('entity')) {
-								isImplementation = false;
-							} else {
-								_ignoreEntity(entityName, '@entity', tsNode);
-								continue rootLoop;
-							}
-							// Create entity
-							const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
-							entity = targetMap.get(entityName);
-							if (entity == null) {
-								entity = {
-									kind: Kind.OBJECT,
-									isInput,
-									name: entityName,
-									annotations,
-									fields: new Map(),
-									inherit: implemented.entities,
-									isClass,
-									jsDoc,
-									jsDocTags,
-									tsNodes: [entityNode]
-								};
-								targetMap.set(entityName, entity);
-							} else if (entity.kind !== Kind.OBJECT) {
-								throw new Error(`Duplicated entity ${entityName} as Object and ${Kind[entity.kind]} at ${getNodePath(entityNode)} and ${getNodePath(entity.tsNodes)}`);
-							} else {
-								entity.annotations.push(...annotations);
-								entity.jsDoc.push(...jsDoc);
-								entity.inherit.push(...implemented.entities);
-								entity.tsNodes.push(entityNode);
-								_mergeJsDocTags(entity.jsDocTags, jsDocTags);
-							}
-							break;
-						case HelperClass.RESOLVERS:
-							// Check jsDoc annotations
-							if (jsDocTags != null) {
-								if (jsDocTags.has('input')) throw `Could not use "@input" with "resolversOf" at: ${getNodePath(entityNode)}`;
-								if (jsDocTags.has('entity')) throw `Could not use "@entity" with "resolversOf" at: ${getNodePath(entityNode)}`;
-							}
-							if (isInput) continue rootLoop;
-							//Entity
-							entity = {
-								kind: Kind.RESOLVER_CLASS,
-								name: entityName,
-								isInput,
-								jsDoc,
-								jsDocTags,
-								tsNodes: [entityNode],
-								entities: implemented.entities,
-								annotations,
-								fields: new Map()
-							};
-							RESOLVERS.push(entity);
-							isImplementation = true;
-							break;
-						case HelperClass.VALIDATORS:
-							// Check jsDoc annotations
-							if (jsDocTags != null) {
-								if (jsDocTags.has('output')) throw `Could not use "@output" with "validatorsOf" at: ${getNodePath(entityNode)}`;
-								if (jsDocTags.has('entity')) throw `Could not use "@entity" with "validatorsOf" at: ${getNodePath(entityNode)}`;
-							}
-							if (!isInput) continue rootLoop;
-							//Entity
-							entity = {
-								kind: Kind.VALIDATOR_CLASS,
-								name: entityName,
-								isInput,
-								jsDoc,
-								jsDocTags,
-								tsNodes: [entityNode],
-								entities: implemented.entities,
-								annotations,
-								fields: new Map()
-							};
-							VALIDATORS.push(entity);
-							isImplementation = true;
-							break;
-						default: {
-							let n: never = implemented.type;
+					if (implemented.type === HelperClass.ENTITY) {
+						// Check if has @entity jsDoc tag
+						if (jsDocTags == null) {
+							_ignoreEntity(entityName, '@entity', tsNode);
 							continue rootLoop;
 						}
+						else if (jsDocTags.has('resolvers')) {
+							isImplementation = true; // If methods are resolvers or entity methods
+							if (isInput) continue rootLoop;// Not an input class
+							if (jsDocTags.has('entity'))
+								throw `@entity and @resolvers are exclusive. at ${getNodePath(tsNode)}`;
+						}
+						else if (jsDocTags.has('entity')) {
+							isImplementation = false;
+						} else {
+							_ignoreEntity(entityName, '@entity', tsNode);
+							continue rootLoop;
+						}
+						// Create entity
+						const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+						entity = targetMap.get(entityName);
+						if (entity == null) {
+							entity = {
+								kind: Kind.OBJECT,
+								isInput,
+								name: entityName,
+								annotations,
+								fields: new Map(),
+								inherit: implemented.entities,
+								isClass,
+								jsDoc,
+								jsDocTags,
+								tsNodes: [entityNode]
+							};
+							targetMap.set(entityName, entity);
+						} else if (entity.kind !== Kind.OBJECT) {
+							throw new Error(`Duplicated entity ${entityName} as Object and ${Kind[entity.kind]} at ${getNodePath(entityNode)} and ${getNodePath(entity.tsNodes)}`);
+						} else {
+							entity.annotations.push(...annotations);
+							entity.jsDoc.push(...jsDoc);
+							entity.inherit.push(...implemented.entities);
+							entity.tsNodes.push(entityNode);
+							_mergeJsDocTags(entity.jsDocTags, jsDocTags);
+						}
+					} else {
+						let kind: Kind;
+						switch (implemented.type) {
+							case HelperClass.RESOLVERS:
+								// Check jsDoc annotations
+								if (jsDocTags != null) {
+									if (jsDocTags.has('input')) throw `Could not use "@input" with "resolversOf" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "resolversOf" at: ${getNodePath(entityNode)}`;
+								}
+								if (isInput) continue rootLoop;
+								kind = Kind.RESOLVER_CLASS;
+								break;
+							case HelperClass.VALIDATORS:
+								// Check jsDoc annotations
+								if (jsDocTags != null) {
+									if (jsDocTags.has('output')) throw `Could not use "@output" with "validatorsOf" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "validatorsOf" at: ${getNodePath(entityNode)}`;
+								}
+								if (!isInput) continue rootLoop;
+								kind = Kind.VALIDATOR_CLASS;
+								break;
+							case HelperClass.SCALAR:
+								if (jsDocTags != null) {
+									if (jsDocTags.has('output')) throw `Could not use "@output" with "Scalar" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('input')) throw `Could not use "@input" with "Scalar" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Scalar" at: ${getNodePath(entityNode)}`;
+								}
+								kind = Kind.SCALAR;
+								break;
+							case HelperClass.UNION:
+								if (jsDocTags != null) {
+									if (jsDocTags.has('output')) throw `Could not use "@output" with "Union" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('input')) throw `Could not use "@input" with "Union" at: ${getNodePath(entityNode)}`;
+									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Union" at: ${getNodePath(entityNode)}`;
+								}
+								kind = Kind.UNION;
+								break;
+							default: {
+								let n: never = implemented.type;
+								continue rootLoop;
+							}
+						}
+						// Entity
+						//Entity
+						const entity2 = {
+							kind,
+							name: entityName,
+							isInput,
+							jsDoc,
+							jsDocTags,
+							tsNodes: [entityNode],
+							entities: implemented.entities,
+							annotations,
+							fields: new Map()
+						};
+						entity = entity2;
+						HELPER_CLASSES.push(entity2);
+						isImplementation = true;
 					}
 					//* Go through properties
 					tsNodeType.getProperties().forEach(s => {
@@ -205,53 +211,90 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 					});
 					break;
 				}
-				case ts.SyntaxKind.PropertySignature:
+				case ts.SyntaxKind.PropertyDeclaration:
 				case ts.SyntaxKind.MethodDeclaration:
-				case ts.SyntaxKind.MethodSignature:
-				case ts.SyntaxKind.PropertyDeclaration: {
+				case ts.SyntaxKind.PropertySignature:
+				case ts.SyntaxKind.MethodSignature: {
 					const propertyNode = tsNode as ts.PropertySignature | ts.MethodDeclaration | ts.PropertyDeclaration;
 					if (parentNode == null) continue rootLoop;
 					if (
 						parentNode.kind != Kind.OBJECT &&
 						parentNode.kind != Kind.VALIDATOR_CLASS &&
-						parentNode.kind != Kind.RESOLVER_CLASS
+						parentNode.kind != Kind.RESOLVER_CLASS &&
+						parentNode.kind != Kind.SCALAR &&
+						parentNode.kind != Kind.UNION
 					)
 						throw `Unexpected parent node "${Kind[parentNode.kind]}" for property "${_getNodeName(tsNode)}" at ${getNodePath(tsNode)}`;
 					if (entityName == null)
 						throw `Missing name for property at ${getNodePath(tsNode)}`;
 					const className = (propertyNode.parent as ts.ClassLikeDeclaration).name?.getText();
-					const isMethod = tsNode.kind === ts.SyntaxKind.MethodSignature || tsNode.kind === ts.SyntaxKind.MethodDeclaration;
-					// Check type
-					if (propertyNode.type == null) {
-						if (isMethod) throw `To minimize errors, please define explicitly the return value for ${parentNode.name}.${entityName} at ${getNodePath(tsNode)}`;
-						else throw `Please define the type of ${parentNode.name}.${entityName} at ${getNodePath(tsNode)}`;
+					//* Method
+					let propMethod: ts.Node | undefined = tsNode;
+					let isMethod = false;
+					let propType: ts.Type;
+					let propSignature: ts.Signature | undefined;
+					let propTypeNode = propertyNode.type;
+					if (
+						ts.isMethodDeclaration(propMethod) ||
+						(
+							(propMethod = (propMethod as ts.PropertySignature).initializer) &&
+							(
+								ts.isFunctionLike(propMethod) ||
+								(propMethod = typeChecker.getTypeAtLocation(propMethod).symbol?.declarations?.[0]) &&
+								ts.isFunctionLike(propMethod)
+							)
+						)
+					) {
+						isMethod = true;
+						propSignature = typeChecker.getSignatureFromDeclaration(propMethod);
+						if (propSignature == null) throw `Fail to get method signature at ${getNodePath(tsNode)}`;
+						propType = typeChecker.getReturnTypeOfSignature(propSignature);
+						propTypeNode = typeChecker.typeToTypeNode(propType, tsNode, undefined);
+						if (propTypeNode == null)
+							throw `Could not resolve typeNode for type ${typeChecker.typeToString(propType)} at ${getNodePath(tsNode)}`;
+					} else if (propTypeNode != null) {
+						propType = typeChecker.getTypeAtLocation(propTypeNode);
+					} else {
+						throw `Please define the type of ${parentNode.name}.${entityName} at ${getNodePath(tsNode)}`;
+						// throw `To minimize errors, please define explicitly the return value for ${parentNode.name}.${entityName} at ${getNodePath(tsNode)}`;
 					}
+					//* Get type info
+					const cleanedType = cleanType(typeChecker, propType);
 					//* Method
 					let method: MethodNode | undefined;
 					if (isMethod) {
 						// Ignore if is entity (not implementation)
 						if (!isImplementation) continue rootLoop;
 						if (className == null) throw `Unexpected anonymous class for method implementation at ${getNodePath(tsNode)}`;
-						const tsMethod = tsNode as ts.MethodDeclaration;
 						method = {
 							kind: Kind.METHOD,
 							class: className,
 							name: entityName,
-							isAsync: isAsync(typeChecker, tsMethod),
 							isStatic: tsNode.modifiers?.some(n => n.kind === ts.SyntaxKind.StaticKeyword) ?? false,
 							params: [],
-							tsNode: tsMethod
+							tsNode: tsNode,
+							type: {
+								kind: Kind.REF,
+								isAsync: cleanedType.hasPromise,
+								isInput,
+								jsDoc,
+								jsDocTags,
+								name: cleanedType.name,
+								tsNodes: [tsNode]
+							}
 						};
 						// Resolve params
-						tsMethod.parameters?.forEach(param => {
-							if (param.type != null)
-								Q.push({
-									isImplementation,
-									isInput,
-									tsNode: param,
-									entityName: param.name.getText(),
-									parentNode: method
-								});
+						propSignature!.parameters?.forEach(param => {
+							const d = param.declarations?.[0];
+							if (d == null)
+								throw `Fail to get param ${param.name} at ${getNodePath(tsNode)}`
+							Q.push({
+								isImplementation,
+								isInput,
+								tsNode: d,
+								entityName: param.name,
+								parentNode: method
+							});
 						});
 					}
 					// Add field
@@ -290,10 +333,10 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 					Q.push({
 						isImplementation,
 						isInput,
-						tsNode: _nodeType(propertyNode.type, tsNodeType),
+						tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
 						entityName,
 						parentNode: field,
-						tsNodeType: tsNodeType
+						tsNodeType: propType //tsNodeType
 					});
 					break;
 				}
@@ -340,10 +383,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 					const typesLen = types.length;
 					if (typesLen === 0)
 						throw `Field has empty type: "${_getNodeName(tsNode)}" at ${getNodePath(tsNode)}`;
-					const typeName = types
-						.map(t => typeChecker.typeToString(t))
-						.sort(_typeSort)
-						.join('|');
+					const typeName = cleanResult.name;
 					let staticValue: string | number | undefined
 					if (typesLen == 1) {
 						// Check if static value
@@ -357,6 +397,7 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 						else if (dec.kind === ts.SyntaxKind.StringLiteral)
 							staticValue = (dec as ts.StringLiteral).text;
 					}
+					// TODO resolve generics (including arrays)
 					//* Add as reference
 					let tpRef: FieldType;
 					if (staticValue == null) {
@@ -571,9 +612,10 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	//TODO
 	//* Return
 	return {
-		input: INPUT_ENTITIES,
-		output: OUTPUT_ENTITIES,
-		ignored: IGNORED_ENTITIES
+		// input: INPUT_ENTITIES,
+		// output: OUTPUT_ENTITIES,
+		// ignored: IGNORED_ENTITIES
+		HELPER_CLASSES
 	}
 
 	/** @private Add all children to queue */
@@ -593,6 +635,11 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	/** @private get node name */
 	function _getNodeName(tsNode: ts.Node): string {
 		return tsNodePrinter.printNode(ts.EmitHint.Unspecified, tsNode, tsNode.getSourceFile());
+	}
+
+	/** @private get type name */
+	function _getGenuineTypeName(tsTypeNode: ts.TypeNode): string {
+		return typeChecker.typeToString(typeChecker.getTypeFromTypeNode(tsTypeNode));
 	}
 
 	/** @private add missing entity */
@@ -635,12 +682,14 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	}
 
 	/** @private return lib path */
-	function _getImportLib(typeName: ts.EntityName): { lib: string, name: string } | undefined {
+	function _getImportLib(typeName: ts.Node) {
 		const importSpecifier = typeChecker.getSymbolAtLocation(typeName)?.declarations?.[0];
 		if (importSpecifier != null && ts.isImportSpecifier(importSpecifier)) {
+			const lib = importSpecifier.parent.parent.parent.moduleSpecifier.getText().slice(1, -1);
 			return {
-				lib: importSpecifier.parent.parent.parent.moduleSpecifier.getText().slice(1, -1),
-				name: (importSpecifier.propertyName ?? importSpecifier.name).getText()
+				name: lib,
+				isFromPackage: compiler._isPackageName(lib),
+				propertyName: (importSpecifier.propertyName ?? importSpecifier.name).getText()
 			}
 		}
 	}
@@ -648,6 +697,60 @@ export function parseSchema(program: ts.Program, files: readonly string[]) {
 	/** Sort type as union */
 	function _typeSort(a: string, b: string): number {
 		return a.localeCompare(b);
+	}
+
+	/**
+	 * Check if a class is a helper class
+	 */
+	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration): { type: HelperClass, entities: string[] } {
+		const entities: string[] = [];
+		let resultType = HelperClass.ENTITY;
+		tsEntity.heritageClauses?.forEach(close => {
+			close.types.forEach(type => {
+				//* Get type and name
+				const lib = _getImportLib(type.expression)
+				//* check if from
+				let cType: HelperClass;
+				if (!lib?.isFromPackage) {
+					cType = HelperClass.ENTITY;
+					entities.push(_getGenuineTypeName(type));
+				} else switch (lib.propertyName) {
+					case 'ValidatorsOf':
+					case 'ResolversOf': {
+						const isInterface = tsEntity.kind === ts.SyntaxKind.InterfaceDeclaration;
+						if (isInterface)
+							throw `An interface could not extends "${lib.propertyName}" at: ${getNodePath(type)}`;
+					}
+					case 'Scalar':
+					case 'Union': {
+						const targetType = type.typeArguments?.[0];
+						if (targetType == null)
+							throw `Missing type for "${lib.propertyName}" at: ${getNodePath(type)}`;
+						entities.push(_getGenuineTypeName(targetType));
+						switch (lib.propertyName) {
+							case 'ValidatorsOf': cType = HelperClass.VALIDATORS; break;
+							case 'ResolversOf': cType = HelperClass.RESOLVERS; break;
+							case 'Scalar': cType = HelperClass.SCALAR; break;
+							case 'Union': cType = HelperClass.UNION; break;
+							default: {
+								let n: never = lib.propertyName;
+								cType = HelperClass.ENTITY;// Make typescript happy :D
+							}
+						}
+						break;
+					}
+					default: {
+						cType = HelperClass.ENTITY;
+						entities.push(_getGenuineTypeName(type));
+					}
+				}
+				// Check implements same generics
+				if (resultType !== cType && resultType !== HelperClass.ENTITY)
+					throw `Could not implement "ResolversOf", "ValidatorsOf", "Scalar" and "Union" at the same time. at ${getNodePath(tsEntity)}`;
+				resultType = cType;
+			});
+		});
+		return { type: resultType, entities };
 	}
 }
 
@@ -696,4 +799,13 @@ function _mergeJsDocTags(target: Map<string, (string | undefined)[]>, src: Map<s
 		if (v == null) target.set(key, value);
 		else v.push(...value);
 	});
+}
+
+/** Helper class return value */
+export enum HelperClass {
+	RESOLVERS,
+	VALIDATORS,
+	ENTITY,
+	SCALAR,
+	UNION
 }

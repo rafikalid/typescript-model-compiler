@@ -1,5 +1,4 @@
 import { getNodePath } from "@utils/node-path";
-import { ModelError, ModelErrorCode } from "tt-model";
 import ts from "typescript";
 
 /**

@@ -1,12 +1,11 @@
 import { Kind } from "./kind";
-import { Scalar } from 'tt-model';
 import ts from "typescript";
 
 
 /** Nodes */
 export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
 	ListNode | ScalarNode | RefNode |
-	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode;
+	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode | UnionNode | ScalarNode;
 
 /** Root nodes */
 export type RootNode = ObjectNode | ListNode | ScalarNode | EnumNode;
@@ -79,12 +78,12 @@ export interface MethodNode {
 	name: string
 	/** Params */
 	params: ParamNode[]
-	/** If this method is async (has promise) */
-	isAsync: boolean
 	/** is prototype or static method */
 	isStatic: boolean;
 	/** tsNode */
-	tsNode: ts.MethodDeclaration;
+	tsNode: ts.Node;
+	/** ref */
+	type: RefNode
 }
 
 /** Method params */
@@ -106,7 +105,7 @@ export interface ListNode extends _NamedNode {
 }
 
 /** Scalar */
-export interface ScalarNode extends _NamedNode, Record<keyof Scalar<unknown>, Method> {
+export interface ScalarNode extends Omit<ValidatorClassNode, 'kind'> {
 	kind: Kind.SCALAR
 }
 
@@ -149,10 +148,8 @@ export interface EnumMemberNode extends _NamedNode {
 }
 
 /** Union */
-export interface UnionNode extends _NamedNode {
+export interface UnionNode extends Omit<ValidatorClassNode, 'kind'> {
 	kind: Kind.UNION;
-	types: FieldType[];
-	resolver: Method;
 }
 
 /**
