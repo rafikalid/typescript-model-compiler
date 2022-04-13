@@ -14,6 +14,8 @@ export enum Kind {
 	LIST,
 	/** Scalar */
 	SCALAR,
+	/** Default scalar (defined by tt-model) */
+	DEFAULT_SCALAR,
 	/** Reference */
 	REF,
 	/** Enumeration */

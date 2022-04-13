@@ -2,8 +2,11 @@ import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
+import { Annotation, DefaultScalarNode, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull } from "./utils";
+import { defaultScalars } from 'tt-model';
+
+const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
 
 /** 
  * Parse schema
@@ -22,7 +25,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	const HELPER_CLASSES: (ResolverClassNode | ValidatorClassNode | ScalarNode | UnionNode)[] = [];
 	const LITERAL_OBJECTS: LiteralObject[] = [];
 	/** Save reference for check */
-	const REFERENCES: Set<string> = new Set();
+	const INPUT_REFERENCES: Map<string, ts.Node> = new Map();
+	const OUTPUT_REFERENCES: Map<string, ts.Node> = new Map();
 	//* Prepare queue
 	const Q: QueueItem[] = [];
 	for (let i = 0, len = files.length; i < len; ++i) {
@@ -410,7 +414,65 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							tsNodes: [tsNode],
 							isAsync: cleanResult.hasPromise
 						};
-						REFERENCES.add(typeName);
+						//* Add reference for check
+						(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, tsNode);
+						//* resolve generics
+						types.forEach(type => {
+							if ((type as ts.TypeReference).typeArguments?.length) {
+								const typeRef = type as ts.TypeReference;
+								const typeRefNode = typeChecker.typeToTypeNode(typeRef, undefined, undefined);
+								if (typeRefNode == null)
+									errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(tsNode)}`);
+								else {
+									const typeName = _getNodeName(typeRefNode);
+									const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+									if (targetMap.has(typeName)) { }
+									else if (ts.isArrayTypeNode(typeRefNode)) {
+										Q.push({
+											isInput,
+											tsNode: typeRefNode,
+											tsNodeType: type,
+											entityName: typeName,
+											parentNode: undefined,
+											tsNodeSymbol: type.symbol,
+											isImplementation
+										});
+									} else {
+										//* Resolve generics
+										const entity: ObjectNode = {
+											kind: Kind.OBJECT,
+											annotations: [],
+											fields: new Map(),
+											inherit: [],
+											isClass: false,
+											isInput,
+											jsDoc: [], //TODO get from original entity
+											jsDocTags: new Map(), //TODO get from original tag
+											name: typeName,
+											tsNodes: []// TODO get from original entity
+										};
+										targetMap.set(typeName, entity);
+										type.getProperties().forEach(s => {
+											const dec = s.valueDeclaration ?? s.declarations?.[0] as ts.PropertyDeclaration | undefined;
+											if (dec == null) {
+												errors.push(`Could not find property declaration for "${typeName}.${s.name}" at ${getNodePath(tsNode)}`);
+												return;
+											}
+											const propType = typeChecker.getTypeOfSymbolAtLocation(s, typeRefNode);
+											Q.push({
+												isInput,
+												tsNode: dec,
+												tsNodeType: propType,
+												entityName: s.name,
+												parentNode: entity,
+												tsNodeSymbol: s,
+												isImplementation
+											});
+										});
+									}
+								}
+							}
+						});
 					} else {
 						tpRef = {
 							kind: Kind.STATIC_VALUE,
@@ -541,10 +603,11 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						parentNode.kind !== Kind.PARAM
 					)
 						throw `Unexpected parent node "${Kind[parentNode.kind]}" for "TypeLiteral" at: ${getNodePath(tsNode)}`;
+					const name = entityName ?? LITERAL_ENTITY_DEFAULT_NAME;
 					const entity: ObjectNode = {
 						kind: Kind.OBJECT,
 						annotations,
-						name: '',
+						name: name,
 						fields: new Map(),
 						inherit: [],
 						isInput,
@@ -555,7 +618,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					};
 					const ref: RefNode = {
 						kind: Kind.REF,
-						name: entityName ?? '',
+						name: name,
 						isInput,
 						jsDoc,
 						jsDocTags,
@@ -601,21 +664,127 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			else throw err;
 		}
 	}
-	//* Throw errors if found
-	if (errors.length) throw new Error(`Parsing Errors: \n\t - ${errors.join('\n\t- ')} `);
 
-	//* Add default scalars
-	//TODO
 	//* Add helpers
-	//TODO
+	HELPER_CLASSES.forEach(function (helper) {
+		const targetMap = helper.isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+		switch (helper.kind) {
+			case Kind.SCALAR: {
+				helper.entities.forEach(name => {
+					if (targetMap.has(name))
+						errors.push(`Duplicated entity scalar "${name}" at ${getNodePath(helper.tsNodes)} and ${getNodePath(targetMap.get(name)!.tsNodes)}`);
+					else
+						targetMap.set(name, helper);
+				});
+				break;
+			}
+			case Kind.UNION: {
+				helper.entities.forEach(name => {
+					if (targetMap.has(name))
+						errors.push(`Duplicated entity union "${name}" at ${getNodePath(helper.tsNodes)} and ${getNodePath(targetMap.get(name)!.tsNodes)}`);
+					else
+						targetMap.set(name, helper);
+				});
+				break;
+			}
+			case Kind.RESOLVER_CLASS:
+			case Kind.VALIDATOR_CLASS: {
+				const isResolvers = helper.kind === Kind.RESOLVER_CLASS;
+				helper.entities.forEach(name => {
+					const entity = targetMap.get(name);
+					if (entity == null) {
+						const ignoredEntity = IGNORED_ENTITIES.get(name);
+						if (ignoredEntity == null)
+							errors.push(`Missing ${isResolvers ? 'output' : 'input'} entity "${name}" has ${isResolvers ? 'resolvers' : 'validators'} at ${getNodePath(helper.tsNodes)}`);
+						else
+							ignoredEntity.forEach(e => {
+								errors.push(`Missing ${e.missing === '@entity' ? '"@entity" or "@resolvers" jsDoc tag' :
+									e.missing === 'export' ? '"export" keyword' :
+										'Something'
+									} on entity ${name} at ${getNodePath(e.tsNode)}`);
+							});
+					} else if (entity.kind !== Kind.OBJECT)
+						errors.push(`Could not add ${isResolvers ? 'resolvers' : 'validators'} to ${Kind[entity.kind]} at ${getNodePath(entity.tsNodes)}`);
+					else {
+						if (helper.jsDocTags != null)
+							_mergeJsDocTags(entity.jsDocTags, helper.jsDocTags);
+						entity.annotations.push(...helper.annotations);
+						// Merge fields
+						const fields = entity.fields;
+						helper.fields.forEach((field, fieldName) => {
+							const targetField = fields.get(fieldName);
+							if (targetField == null) {
+								fields.set(fieldName, field);
+							} else if (targetField.method != null)
+								errors.push(`Field ${entity.name}.${fieldName} already has a ${isResolvers ? 'resolver' : 'validator'} at ${getNodePath(targetField.tsNodes)}. ${isResolvers ? 'resolver' : 'validator'} at ${getNodePath(field.tsNodes)}`);
+							else {
+								targetField.method = field.method;
+								targetField.jsDoc.push(...field.jsDoc);
+								targetField.annotations.push(...field.annotations);
+								// jsDoc tags
+								if (targetField.jsDocTags == null) targetField.jsDocTags = field.jsDocTags;
+								else if (field.jsDocTags != null) _mergeJsDocTags(targetField.jsDocTags, field.jsDocTags);
+							}
+						});
+					}
+				});
+				break;
+			}
+			default: {
+				let n: never = helper;
+			}
+		}
+	});
+	//* Add default scalars
+	Object.keys(defaultScalars).forEach(scalarName => {
+		// Create entity
+		const entity: DefaultScalarNode = {
+			kind: Kind.DEFAULT_SCALAR,
+			name: scalarName,
+			class: defaultScalars[scalarName as keyof typeof defaultScalars],
+			isInput: false,
+			jsDoc: [],
+			jsDocTags: undefined,
+			tsNodes: []
+		}
+		// Add to input entities
+		if (!INPUT_ENTITIES.has(scalarName)) INPUT_ENTITIES.set(scalarName, entity);
+		// Add to output entities
+		if (!OUTPUT_ENTITIES.has(scalarName)) OUTPUT_ENTITIES.set(scalarName, entity);
+	});
+	//* Check for missing entities
+	INPUT_REFERENCES.forEach((tsNode, ref) => {
+		if (!INPUT_ENTITIES.has(ref))
+			errors.push(`Missing input entity ${ref} referenced at ${getNodePath(tsNode)}`);
+	});
+	OUTPUT_REFERENCES.forEach((tsNode, ref) => {
+		if (!OUTPUT_ENTITIES.has(ref))
+			errors.push(`Missing output entity ${ref} referenced at ${getNodePath(tsNode)}`);
+	});
+	//* Throw errors if found
+	if (errors.length) throw new Error(`Parsing Errors: \n\t - ${errors.join('\n\t- ')}`);
 	//* Add nameless entities
-	//TODO
+	LITERAL_OBJECTS.forEach(({ isInput, ref, entity }) => {
+		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+		const entityName = entity.name;
+		let name = entityName;
+		let i = 0;
+		do {
+			if (targetMap.has(name)) {
+				name = `${entityName}_${++i}`;
+			} else {
+				entity.name = ref.name = name;
+				targetMap.set(name, entity);
+				break;
+			}
+		} while (true);
+	});
 	//* Return
 	return {
-		// input: INPUT_ENTITIES,
-		// output: OUTPUT_ENTITIES,
+		input: INPUT_ENTITIES,
+		output: OUTPUT_ENTITIES,
 		// ignored: IGNORED_ENTITIES
-		HELPER_CLASSES
+		// HELPER_CLASSES
 	}
 
 	/** @private Add all children to queue */

@@ -1,14 +1,15 @@
 import { Kind } from "./kind";
 import ts from "typescript";
+import { Scalar } from "tt-model";
 
 
 /** Nodes */
 export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
-	ListNode | ScalarNode | RefNode |
+	ListNode | ScalarNode | DefaultScalarNode | RefNode |
 	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode | UnionNode | ScalarNode;
 
 /** Root nodes */
-export type RootNode = ObjectNode | ListNode | ScalarNode | EnumNode;
+export type RootNode = ObjectNode | ListNode | ScalarNode | DefaultScalarNode | UnionNode | EnumNode;
 
 /** Field possible types (string means reference) */
 export type FieldType = RefNode | StaticValueNode | undefined;
@@ -184,4 +185,10 @@ export interface Annotation {
 	path?: string
 	/** Is annotation from JSDoc or Decorator */
 	isJSDoc: boolean
+}
+
+/** Default scalar node */
+export interface DefaultScalarNode extends _NamedNode {
+	kind: Kind.DEFAULT_SCALAR
+	class: new () => Scalar<any>
 }
