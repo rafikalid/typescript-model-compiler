@@ -758,8 +758,17 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			errors.push(`Missing input entity ${ref} referenced at ${getNodePath(tsNode)}`);
 	});
 	OUTPUT_REFERENCES.forEach((tsNode, ref) => {
-		if (!OUTPUT_ENTITIES.has(ref))
+		if (OUTPUT_ENTITIES.has(ref)) { }
+		else if (IGNORED_ENTITIES.has(ref)) {
+			IGNORED_ENTITIES.get(ref)!.forEach(e => {
+				errors.push(`Missing ${e.missing === '@entity' ? '"@entity" or "@resolvers" jsDoc tag' :
+					e.missing === 'export' ? '"export" keyword' :
+						'Something'
+					} on entity ${ref} at ${getNodePath(e.tsNode)}`);
+			});
+		} else {
 			errors.push(`Missing output entity ${ref} referenced at ${getNodePath(tsNode)}`);
+		}
 	});
 	//* Throw errors if found
 	if (errors.length) throw new Error(`Parsing Errors: \n\t - ${errors.join('\n\t- ')}`);
