@@ -41,7 +41,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		try {
 			//* Get next item
 			const QItem = Q[Qi];
-			const { tsNode, parentNode, isInput, isImplementation, entityName } = QItem;
+			const { tsNode, parentNode, isInput, isImplementation, entityName, parentTsNode } = QItem;
 			const tsNodeType = QItem.tsNodeType ?? typeChecker.getTypeAtLocation(tsNode);
 			const tsNodeSymbol = QItem.tsNodeSymbol ?? tsNodeType.symbol;
 			//* Parse jsDoc
@@ -222,11 +222,11 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					const propertyNode = tsNode as ts.PropertySignature | ts.MethodDeclaration | ts.PropertyDeclaration;
 					if (parentNode == null) continue rootLoop;
 					if (
-						parentNode.kind != Kind.OBJECT &&
-						parentNode.kind != Kind.VALIDATOR_CLASS &&
-						parentNode.kind != Kind.RESOLVER_CLASS &&
-						parentNode.kind != Kind.SCALAR &&
-						parentNode.kind != Kind.UNION
+						parentNode.kind !== Kind.OBJECT &&
+						parentNode.kind !== Kind.VALIDATOR_CLASS &&
+						parentNode.kind !== Kind.RESOLVER_CLASS &&
+						parentNode.kind !== Kind.SCALAR &&
+						parentNode.kind !== Kind.UNION
 					)
 						throw `Unexpected parent node "${Kind[parentNode.kind]}" for property "${_getNodeName(tsNode)}" at ${getNodePath(tsNode)}`;
 					if (entityName == null)
@@ -333,15 +333,19 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							else _mergeJsDocTags(field.jsDocTags, jsDocTags);
 						}
 					}
-					// resolve type
-					Q.push({
-						isImplementation,
-						isInput,
-						tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
-						entityName,
-						parentNode: field,
-						tsNodeType: propType //tsNodeType
-					});
+					//* resolve type
+					/** Ignore methods returned types for scalars and unions */
+					const parseReturnedTypes = parentNode.kind !== Kind.UNION && parentNode.kind !== Kind.SCALAR;
+					if (parseReturnedTypes)
+						Q.push({
+							isImplementation,
+							isInput,
+							tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
+							parentTsNode: tsNode,
+							entityName,
+							parentNode: field,
+							tsNodeType: propType //tsNodeType
+						});
 					break;
 				}
 				case ts.SyntaxKind.Parameter: {
@@ -365,6 +369,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						isImplementation,
 						isInput,
 						tsNode: paramNode.type!,//_nodeType(paramNode.type!, tsNodeType),
+						parentTsNode: tsNode,
 						entityName,
 						parentNode: param
 					});
@@ -386,7 +391,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					const types = cleanResult.types;
 					const typesLen = types.length;
 					if (typesLen === 0)
-						throw `Field has empty type: "${_getNodeName(tsNode)}" at ${getNodePath(tsNode)}`;
+						throw `Field has empty type: "${_getNodeName(parentTsNode ?? tsNode)}" at ${getNodePath(parentTsNode ?? tsNode)}`;
 					const typeName = cleanResult.name;
 					let staticValue: string | number | undefined
 					if (typesLen == 1) {
@@ -411,18 +416,18 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							jsDoc,
 							jsDocTags,
 							name: typeName,
-							tsNodes: [tsNode],
+							tsNodes: [parentTsNode ?? tsNode],
 							isAsync: cleanResult.hasPromise
 						};
 						//* Add reference for check
-						(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, tsNode);
+						(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
 						//* resolve generics
 						types.forEach(type => {
 							if ((type as ts.TypeReference).typeArguments?.length) {
 								const typeRef = type as ts.TypeReference;
 								const typeRefNode = typeChecker.typeToTypeNode(typeRef, undefined, undefined);
 								if (typeRefNode == null)
-									errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(tsNode)}`);
+									errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(parentTsNode ?? tsNode)}`);
 								else {
 									const typeName = _getNodeName(typeRefNode);
 									const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
@@ -431,6 +436,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 										Q.push({
 											isInput,
 											tsNode: typeRefNode,
+											parentTsNode: parentTsNode,
 											tsNodeType: type,
 											entityName: typeName,
 											parentNode: undefined,
@@ -449,7 +455,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 											jsDoc: [], //TODO get from original entity
 											jsDocTags: new Map(), //TODO get from original tag
 											name: typeName,
-											tsNodes: []// TODO get from original entity
+											tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
 										};
 										targetMap.set(typeName, entity);
 										type.getProperties().forEach(s => {
@@ -462,6 +468,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 											Q.push({
 												isInput,
 												tsNode: dec,
+												parentTsNode: parentTsNode,
 												tsNodeType: propType,
 												entityName: s.name,
 												parentNode: entity,
@@ -543,6 +550,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							isImplementation,
 							isInput,
 							tsNode: arrEl, //_nodeType(arrEl, arrType),
+							parentTsNode: tsNode,
 							tsNodeType: arrType,
 							entityName,
 							parentNode: listNode
@@ -771,7 +779,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		}
 	});
 	//* Throw errors if found
-	if (errors.length) throw new Error(`Parsing Errors: \n\t - ${errors.join('\n\t- ')}`);
+	if (errors.length) throw new Error(`Parsing Errors: \n\t- ${errors.join('\n\t- ')}`);
 	//* Add nameless entities
 	LITERAL_OBJECTS.forEach(({ isInput, ref, entity }) => {
 		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
@@ -944,6 +952,8 @@ interface QueueItem {
 	parentNode?: Node
 	/** Typescript node */
 	tsNode: ts.Node
+	/** Parent tsNode: used for debug */
+	parentTsNode?: ts.Node
 	/** Node type */
 	tsNodeType?: ts.Type
 	/** Node symbol: useful for generics */
