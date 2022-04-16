@@ -28,40 +28,19 @@ export function doesTypeHaveNull(typeChecker: ts.TypeChecker, nodeType: ts.Type)
 /**
  * Remove promises and null values
  */
-export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
-	let txt= typeChecker.typeToString(typeChecker.getNonNullableType(type));
-	// Remove Promise
-	let idx:number;
-	while((idx= txt.indexOf('Promise<')) > -1){
-		let i= idx+8;
-		for(let len= txt.length, j=1; i<len && j>0; ++i){
-			const c=txt[i];
-			if(c==='<') ++j;
-			else if(c==='>')--j;
-		}
-		txt= `${txt.slice(0, idx)}${txt.slice(idx+8, i-1)}${txt.slice(i)}`;
-	}
-	txt= txt.split('|')
-		.map(t=> t.trim())
-		.filter((t, i, arr)=> t!=='undefined' && t!=='null' && i===arr.indexOf(t))
-		.sort((a, b)=> a.localeCompare(b))
-		.join('|')
-		
+export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {		
 	// Get types
 	let hasPromise= false;
 	const result: ts.Type[] = [];
 	const queue: ts.Type[] = [typeChecker.getNonNullableType(type)];
 
-	let typeName:string | null
 	while (queue.length > 0) {
 		const tp = queue.pop()!;
 		if(tp.isIntersection() || tp.isClassOrInterface()){
 			result.push(tp); // only resolve real type format
 		}else if(tp.isUnion()){
 			// Fix union issue
-			typeName= typeChecker.typeToString(tp);
-			if(typeName.includes('|')) queue.push(...tp.types);
-			else result.push(tp);
+			queue.push(...tp.types);
 		} else if (tp.symbol?.name === 'Promise') {
 			hasPromise= true;
 			const tp2 = (tp as ts.TypeReference).typeArguments?.[0];
@@ -70,6 +49,12 @@ export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
 			result.push(tp);
 		}
 	}
+	
+	const txt= result
+		.map(t=> typeChecker.typeToString(t))
+		.filter((t, i, arr)=> i === arr.indexOf(t))
+		.sort((a, b)=> a.localeCompare(b))
+		.join('|');
 
 	return {
 		name: txt,

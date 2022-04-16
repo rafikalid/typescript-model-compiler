@@ -190,7 +190,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							jsDoc,
 							jsDocTags,
 							tsNodes: [entityNode],
-							entities: implemented.entities,
+							entities: implemented.nodes,
 							annotations,
 							fields: new Map()
 						};
@@ -406,7 +406,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						else if (dec.kind === ts.SyntaxKind.StringLiteral)
 							staticValue = (dec as ts.StringLiteral).text;
 					}
-					// TODO resolve generics (including arrays)
 					//* Add as reference
 					let tpRef: FieldType;
 					if (staticValue == null) {
@@ -423,60 +422,60 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
 						//* resolve generics
 						types.forEach(type => {
-							if ((type as ts.TypeReference).typeArguments?.length) {
+							const typeName = typeChecker.typeToString(type);
+							const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+							if (targetMap.has(typeName)) { }
+							else if (
+								typeName.endsWith('>') || typeName.endsWith(']')
+							) {
 								const typeRef = type as ts.TypeReference;
 								const typeRefNode = typeChecker.typeToTypeNode(typeRef, undefined, undefined);
 								if (typeRefNode == null)
 									errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(parentTsNode ?? tsNode)}`);
-								else {
-									const typeName = _getNodeName(typeRefNode);
-									const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
-									if (targetMap.has(typeName)) { }
-									else if (ts.isArrayTypeNode(typeRefNode)) {
+								else if (ts.isArrayTypeNode(typeRefNode)) {
+									Q.push({
+										isInput,
+										tsNode: typeRefNode,
+										parentTsNode: parentTsNode,
+										tsNodeType: type,
+										entityName: typeName,
+										parentNode: undefined,
+										tsNodeSymbol: type.symbol,
+										isImplementation
+									});
+								} else {
+									//* Resolve generics
+									const entity: ObjectNode = {
+										kind: Kind.OBJECT,
+										annotations: [],
+										fields: new Map(),
+										inherit: [],
+										isClass: false,
+										isInput,
+										jsDoc: [], //TODO get from original entity
+										jsDocTags: new Map(), //TODO get from original tag
+										name: typeName,
+										tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
+									};
+									targetMap.set(typeName, entity);
+									type.getProperties().forEach(s => {
+										const dec = s.valueDeclaration ?? s.declarations?.[0] as ts.PropertyDeclaration | undefined;
+										if (dec == null) {
+											errors.push(`Could not find property declaration for "${typeName}.${s.name}" at ${getNodePath(tsNode)}`);
+											return;
+										}
+										const propType = typeChecker.getTypeOfSymbolAtLocation(s, typeRefNode);
 										Q.push({
 											isInput,
-											tsNode: typeRefNode,
+											tsNode: dec,
 											parentTsNode: parentTsNode,
-											tsNodeType: type,
-											entityName: typeName,
-											parentNode: undefined,
-											tsNodeSymbol: type.symbol,
+											tsNodeType: propType,
+											entityName: s.name,
+											parentNode: entity,
+											tsNodeSymbol: s,
 											isImplementation
 										});
-									} else {
-										//* Resolve generics
-										const entity: ObjectNode = {
-											kind: Kind.OBJECT,
-											annotations: [],
-											fields: new Map(),
-											inherit: [],
-											isClass: false,
-											isInput,
-											jsDoc: [], //TODO get from original entity
-											jsDocTags: new Map(), //TODO get from original tag
-											name: typeName,
-											tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
-										};
-										targetMap.set(typeName, entity);
-										type.getProperties().forEach(s => {
-											const dec = s.valueDeclaration ?? s.declarations?.[0] as ts.PropertyDeclaration | undefined;
-											if (dec == null) {
-												errors.push(`Could not find property declaration for "${typeName}.${s.name}" at ${getNodePath(tsNode)}`);
-												return;
-											}
-											const propType = typeChecker.getTypeOfSymbolAtLocation(s, typeRefNode);
-											Q.push({
-												isInput,
-												tsNode: dec,
-												parentTsNode: parentTsNode,
-												tsNodeType: propType,
-												entityName: s.name,
-												parentNode: entity,
-												tsNodeSymbol: s,
-												isImplementation
-											});
-										});
-									}
+									});
 								}
 							}
 						});
@@ -520,13 +519,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					break;
 				}
 				case ts.SyntaxKind.ArrayType: {
-					// if (parentNode == null) continue rootLoop;
-					// if (
-					// 	parentNode.kind !== Kind.FIELD &&
-					// 	parentNode.kind !== Kind.LIST &&
-					// 	parentNode.kind !== Kind.PARAM
-					// )
-					// 	throw `Unexpected parent node "${Kind[parentNode.kind]}" for "ArrayType" at: ${getNodePath(tsNode)}`;
 					const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 					const entityName = typeChecker.typeToString(tsNodeType);
 					if (!targetMap.has(entityName)) {
@@ -541,7 +533,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							jsDocTags,
 							required: !isOptional,
 							tsNodes: [tsNode],
-							name: typeChecker.typeToString(arrType),
+							name: entityName,
 							type: undefined
 						};
 						targetMap.set(entityName, listNode);
@@ -575,6 +567,11 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						members: []
 					};
 					targetMap.set(entityName, entity);
+					const cleanName = enumNode.members
+						.map(member => `${entityName}.${member.name.getText()}`)
+						.sort((a, b) => a.localeCompare(b))
+						.join('|');
+					targetMap.set(cleanName, entity);
 					// Resolve children
 					enumNode.members.forEach(member => {
 						Q.push({
@@ -678,41 +675,41 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		const targetMap = helper.isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 		switch (helper.kind) {
 			case Kind.SCALAR: {
-				helper.entities.forEach(name => {
-					if (targetMap.has(name))
-						errors.push(`Duplicated entity scalar "${name}" at ${getNodePath(helper.tsNodes)} and ${getNodePath(targetMap.get(name)!.tsNodes)}`);
-					else
-						targetMap.set(name, helper);
+				helper.entities.forEach(node => {
+					helper = { ...helper, name: node.name } as typeof helper;
+					_addUnionOrScalar(targetMap, helper as ScalarNode, node.name);
+					if (node.name !== node.cleanName)
+						_addUnionOrScalar(targetMap, helper as ScalarNode, node.cleanName);
 				});
 				break;
 			}
 			case Kind.UNION: {
-				helper.entities.forEach(name => {
-					if (targetMap.has(name))
-						errors.push(`Duplicated entity union "${name}" at ${getNodePath(helper.tsNodes)} and ${getNodePath(targetMap.get(name)!.tsNodes)}`);
-					else
-						targetMap.set(name, helper);
+				helper.entities.forEach(node => {
+					helper = { ...helper, name: node.name } as typeof helper;
+					_addUnionOrScalar(targetMap, helper as UnionNode, node.name);
+					if (node.name !== node.cleanName)
+						_addUnionOrScalar(targetMap, helper as UnionNode, node.cleanName);
 				});
 				break;
 			}
 			case Kind.RESOLVER_CLASS:
 			case Kind.VALIDATOR_CLASS: {
 				const isResolvers = helper.kind === Kind.RESOLVER_CLASS;
-				helper.entities.forEach(name => {
-					const entity = targetMap.get(name);
+				helper.entities.forEach(node => {
+					const entity = targetMap.get(node.cleanName);
 					if (entity == null) {
-						const ignoredEntity = IGNORED_ENTITIES.get(name);
+						const ignoredEntity = IGNORED_ENTITIES.get(node.cleanName);
 						if (ignoredEntity == null)
-							errors.push(`Missing ${isResolvers ? 'output' : 'input'} entity "${name}" has ${isResolvers ? 'resolvers' : 'validators'} at ${getNodePath(helper.tsNodes)}`);
+							errors.push(`Missing ${isResolvers ? 'output' : 'input'} entity "${node.name}" has ${isResolvers ? 'resolvers' : 'validators'} at ${getNodePath(helper.tsNodes)}`);
 						else
 							ignoredEntity.forEach(e => {
 								errors.push(`Missing ${e.missing === '@entity' ? '"@entity" or "@resolvers" jsDoc tag' :
 									e.missing === 'export' ? '"export" keyword' :
 										'Something'
-									} on entity ${name} at ${getNodePath(e.tsNode)}`);
+									} on entity ${node.name} at ${getNodePath(e.tsNode)}`);
 							});
 					} else if (entity.kind !== Kind.OBJECT)
-						errors.push(`Could not add ${isResolvers ? 'resolvers' : 'validators'} to ${Kind[entity.kind]} at ${getNodePath(entity.tsNodes)}`);
+						errors.push(`Could not add ${isResolvers ? 'resolvers' : 'validators'} to "${node.name}" as ${Kind[entity.kind]} at ${getNodePath(entity.tsNodes)}`);
 					else {
 						if (helper.jsDocTags != null)
 							_mergeJsDocTags(entity.jsDocTags, helper.jsDocTags);
@@ -761,23 +758,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		if (!OUTPUT_ENTITIES.has(scalarName)) OUTPUT_ENTITIES.set(scalarName, entity);
 	});
 	//* Check for missing entities
-	INPUT_REFERENCES.forEach((tsNode, ref) => {
-		if (!INPUT_ENTITIES.has(ref))
-			errors.push(`Missing input entity ${ref} referenced at ${getNodePath(tsNode)}`);
-	});
-	OUTPUT_REFERENCES.forEach((tsNode, ref) => {
-		if (OUTPUT_ENTITIES.has(ref)) { }
-		else if (IGNORED_ENTITIES.has(ref)) {
-			IGNORED_ENTITIES.get(ref)!.forEach(e => {
-				errors.push(`Missing ${e.missing === '@entity' ? '"@entity" or "@resolvers" jsDoc tag' :
-					e.missing === 'export' ? '"export" keyword' :
-						'Something'
-					} on entity ${ref} at ${getNodePath(e.tsNode)}`);
-			});
-		} else {
-			errors.push(`Missing output entity ${ref} referenced at ${getNodePath(tsNode)}`);
-		}
-	});
+	INPUT_REFERENCES.forEach(_checkIgnoredEntities);
+	OUTPUT_REFERENCES.forEach(_checkIgnoredEntities);
 	//* Throw errors if found
 	if (errors.length) throw new Error(`Parsing Errors: \n\t- ${errors.join('\n\t- ')}`);
 	//* Add nameless entities
@@ -804,6 +786,23 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		// HELPER_CLASSES
 	}
 
+	/** @private Check for ignore entities */
+	function _checkIgnoredEntities(tsNode: ts.Node, ref: string, map: Map<string, ts.Node>) {
+		const isInput = map === INPUT_REFERENCES;
+		const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+		if (targetMap.has(ref)) { }
+		else if (IGNORED_ENTITIES.has(ref)) {
+			IGNORED_ENTITIES.get(ref)!.forEach(e => {
+				errors.push(`Missing ${e.missing === '@entity' ? '"@entity" or "@resolvers" jsDoc tag' :
+					e.missing === 'export' ? '"export" keyword' :
+						'Something'
+					} on entity ${ref} at ${getNodePath(e.tsNode)}`);
+			});
+		} else {
+			errors.push(`Missing ${isInput ? 'input' : 'output'} entity ${ref} referenced at ${getNodePath(tsNode)}`);
+		}
+	}
+
 	/** @private Add all children to queue */
 	function _queueChildren(isInput: boolean, tsNode: ts.Node, parentNode?: Node, entityName?: string) {
 		for (let i = 0, children = tsNode.getChildren(), len = children.length; i < len; ++i) {
@@ -823,32 +822,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		return tsNodePrinter.printNode(ts.EmitHint.Unspecified, tsNode, tsNode.getSourceFile());
 	}
 
-	/** @private get type name */
-	function _getGenuineTypeName(tsTypeNode: ts.TypeNode): string {
-		return typeChecker.typeToString(typeChecker.getTypeFromTypeNode(tsTypeNode));
-	}
-
 	/** @private add missing entity */
 	function _ignoreEntity(name: string, missing: 'export' | '@entity', tsNode: ts.Node) {
 		const info: IgnoredEntity = { tsNode, missing };
 		const v = IGNORED_ENTITIES.get(name);
 		if (v == null) IGNORED_ENTITIES.set(name, [info]);
 		else v.push(info);
-	}
-
-	/** @private Get node type, support generics */
-	function _nodeType(parentNode: ts.TypeNode, type: ts.Type): ts.TypeNode {
-		try {
-			return typeChecker.typeToTypeNode(
-				type, parentNode,
-				ts.NodeBuilderFlags.AllowUniqueESSymbolType | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
-			) ?? parentNode;
-		} catch (err) {
-			console.error('TYPE ERROR>>', err);
-			console.log('===', typeChecker.typeToString(type));
-			console.log('===', parentNode.getText());
-			return parentNode;
-		}
 	}
 
 	/** @private Get node full qualified name including parent namespace */
@@ -880,39 +859,47 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		}
 	}
 
-	/** Sort type as union */
-	function _typeSort(a: string, b: string): number {
-		return a.localeCompare(b);
-	}
-
 	/**
 	 * Check if a class is a helper class
 	 */
-	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration): { type: HelperClass, entities: string[] } {
+	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration): { type: HelperClass, entities: string[], nodes: ImplementedEntity[] } {
 		const entities: string[] = [];
+		const entityNodes: ImplementedEntity[] = [];
 		let resultType = HelperClass.ENTITY;
 		tsEntity.heritageClauses?.forEach(close => {
-			close.types.forEach(type => {
+			close.types.forEach(typeNode => {
+				const type = typeChecker.getTypeFromTypeNode(typeNode);
 				//* Get type and name
-				const lib = _getImportLib(type.expression)
+				const lib = _getImportLib(typeNode.expression)
 				//* check if from
 				let cType: HelperClass;
 				if (!lib?.isFromPackage) {
 					cType = HelperClass.ENTITY;
-					entities.push(_getGenuineTypeName(type));
+					const entityName = typeChecker.typeToString(type);
+					entities.push(entityName);
+					entityNodes.push({
+						name: entityName,
+						cleanName: cleanType(typeChecker, type).name
+					});
 				} else switch (lib.propertyName) {
 					case 'ValidatorsOf':
 					case 'ResolversOf': {
 						const isInterface = tsEntity.kind === ts.SyntaxKind.InterfaceDeclaration;
 						if (isInterface)
-							throw `An interface could not extends "${lib.propertyName}" at: ${getNodePath(type)}`;
+							throw `An interface could not extends "${lib.propertyName}" at: ${getNodePath(typeNode)}`;
 					}
 					case 'Scalar':
 					case 'Union': {
-						const targetType = type.typeArguments?.[0];
-						if (targetType == null)
-							throw `Missing type for "${lib.propertyName}" at: ${getNodePath(type)}`;
-						entities.push(_getGenuineTypeName(targetType));
+						const targetTypeNode = typeNode.typeArguments?.[0];
+						if (targetTypeNode == null)
+							throw `Missing type for "${lib.propertyName}" at: ${getNodePath(typeNode)}`;
+						const targetType = typeChecker.getTypeFromTypeNode(targetTypeNode);
+						const entityName = typeChecker.typeToString(targetType);
+						entities.push(entityName);
+						entityNodes.push({
+							name: entityName,
+							cleanName: cleanType(typeChecker, targetType).name
+						});
 						switch (lib.propertyName) {
 							case 'ValidatorsOf': cType = HelperClass.VALIDATORS; break;
 							case 'ResolversOf': cType = HelperClass.RESOLVERS; break;
@@ -927,7 +914,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					}
 					default: {
 						cType = HelperClass.ENTITY;
-						entities.push(_getGenuineTypeName(type));
+						const entityName = typeChecker.typeToString(type);
+						entities.push(entityName);
+						entityNodes.push({
+							name: entityName,
+							cleanName: cleanType(typeChecker, type).name
+						});
 					}
 				}
 				// Check implements same generics
@@ -936,8 +928,26 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				resultType = cType;
 			});
 		});
-		return { type: resultType, entities };
+		return { type: resultType, entities, nodes: entityNodes };
 	}
+
+	/** Add union or scalar to entities */
+	function _addUnionOrScalar(
+		targetMap: Map<string, RootNode>,
+		helper: ScalarNode | UnionNode,
+		name: string
+	) {
+		if (targetMap.has(name))
+			errors.push(`Duplicated ${helper.kind === Kind.UNION ? 'Union' : 'Scalar'} Entity "${name}" at ${getNodePath(helper.tsNodes)} and ${getNodePath(targetMap.get(name)!.tsNodes)}`);
+		else
+			targetMap.set(name, helper);
+	}
+}
+
+export interface ImplementedEntity {
+	name: string,
+	/** used for indexing */
+	cleanName: string
 }
 
 /**

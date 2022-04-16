@@ -1,6 +1,7 @@
 import { Kind } from "./kind";
 import ts from "typescript";
 import { Scalar } from "tt-model";
+import { ImplementedEntity } from "./parse";
 
 
 /** Nodes */
@@ -160,7 +161,7 @@ export interface UnionNode extends Omit<ValidatorClassNode, 'kind'> {
 export interface ValidatorClassNode extends _NamedNode {
 	kind: Kind.VALIDATOR_CLASS,
 	/** Implemented entities including generics without "any" keywords */
-	entities: string[]
+	entities: ImplementedEntity[]
 	/** Fields */
 	fields: Map<string, FieldNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
