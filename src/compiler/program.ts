@@ -9,7 +9,8 @@ import { readFileSync } from 'fs';
 export function _createProgram(
 	filesContent: Map<string, string | undefined>,
 	compilerOptions: ts.CompilerOptions,
-	encoding: BufferEncoding
+	encoding: BufferEncoding,
+	oldProgram: ts.Program | undefined
 ) {
 	//* Host
 	const pHost = ts.createCompilerHost(compilerOptions, true);
@@ -33,6 +34,7 @@ export function _createProgram(
 		// Write only to existing files
 		if (filesContent.has(fileName)) filesContent.set(fileName, data);
 	};
+
 	//* Program
-	return ts.createProgram(Array.from(filesContent.keys()), compilerOptions, pHost);
+	return ts.createProgram(Array.from(filesContent.keys()), compilerOptions, pHost, oldProgram);
 }

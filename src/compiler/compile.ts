@@ -22,6 +22,9 @@ export class Compiler {
 	/** Dependent files (case of utilities like "partial") */
 	#relatedFiles: Map<string, string[]> = new Map();
 
+	/** Current program */
+	#program?: ts.Program;
+
 	/**
 	 * Init compiler
 	 * @param {ts.CompilerOptions | string}	compilerOptions	- Parsed typescript config or path to that file
@@ -54,7 +57,7 @@ export class Compiler {
 
 		//* Program
 		info('>> Create Program');
-		const program = _createProgram(files, this.#compilerOptions, encoding);
+		const program = this.#program = _createProgram(files, this.#compilerOptions, encoding, this.#program);
 
 		//* Load target files from patterns
 		info(`>> Load Patterns and files`);
