@@ -188,6 +188,8 @@ export interface Annotation {
 	params: string[]
 	/** Target tsNode */
 	tsNode: ts.Node
+	/** Annotation Handler */
+	handler?: ts.CallExpression | ts.FunctionDeclaration | ts.MethodDeclaration
 }
 
 /** Default scalar node */

@@ -109,14 +109,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				//* Add to jsDoc
 				jsDoc.push(`@${annotationName} ${args.join(', ')}`);
 
-				//* Add annotation
-				annotations.push({
-					name: annotationName,
-					fileName: decoVar.getSourceFile().fileName,
-					isFromPackage,
-					params: args,
-					tsNode: tsNode
-				});
+				//* Check for special annotations
 				if (isFromPackage) {
 					switch (annotationName) {
 						case 'ignore':
@@ -131,8 +124,55 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					}
 				}
 				//* Check if is a macro
-				console.log('>>', decoVar.getSourceFile().fileName);
-				console.log('====ANNOTATION>>', annotationName, decoVar.getText());
+				let varExpr: ts.Node | undefined;
+				let decoFactoryType: ts.Type;
+				let decoFactorySym: ts.Symbol;
+				if (
+					ts.isVariableDeclaration(decoVar) &&
+					(varExpr = decoVar.initializer) &&
+					(ts.isCallExpression(varExpr)) &&
+					(decoFactoryType = typeChecker.getTypeAtLocation(varExpr.expression)) &&
+					(decoFactorySym = (decoFactoryType.aliasSymbol ?? decoFactoryType.symbol)) &&
+					(decoFactorySym.name === 'createDecorator') &&
+					compiler._isFromPackage(decoFactorySym?.declarations?.[0])
+				) {
+					if (varExpr.arguments.length != 1)
+						throw `"createDecorator" expect exactly one argument. for "@${annotationName}" at: ${getNodePath(decoVar)}`;
+					// Get argument
+					let fxHandler: ts.CallExpression | ts.MethodDeclaration | ts.FunctionDeclaration;
+					let fx = varExpr.arguments[0];
+					// TODO fix when Handler is from declaration file
+					if (ts.isCallExpression(fx) || ts.isFunctionDeclaration(fx)) {
+						fxHandler = fx;
+					} else {
+						const fxType = typeChecker.getTypeAtLocation(fx);
+						const fxDec = (fxType.aliasSymbol ?? fxType.symbol)?.declarations?.[0];
+						if (fxDec == null)
+							throw `Could not find "${fx.getText()}" for "@${annotationName}" at: ${getNodePath(decoVar)}`;
+						if (ts.isCallExpression(fxDec) || ts.isFunctionDeclaration(fxDec) || ts.isMethodDeclaration(fxDec))
+							fxHandler = fxDec;
+						else
+							throw `Expected a Handler to create a decorator. Got "${fx.getText()}" as "${ts.SyntaxKind[fxDec.kind]}". for "@${annotationName}" at: ${getNodePath(decoVar)}`;
+						fxHandler = fxDec;
+					}
+					// Add
+					annotations.push({
+						name: annotationName,
+						fileName: decoVar.getSourceFile().fileName,
+						isFromPackage,
+						params: args,
+						tsNode: tsNode,
+						handler: fxHandler
+					});
+				} else if (isFromPackage) {
+					annotations.push({
+						name: annotationName,
+						fileName: decoVar.getSourceFile().fileName,
+						isFromPackage,
+						params: args,
+						tsNode: tsNode
+					});
+				}
 			};
 			//* Parse node
 			switch (tsNode.kind) {
@@ -911,19 +951,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		return result.reverse().join('.');
 	}
 
-	/** @private return lib path */
-	function _getImportLib(typeName: ts.Node) {
-		const importSpecifier = typeChecker.getSymbolAtLocation(typeName)?.declarations?.[0];
-		if (importSpecifier != null && ts.isImportSpecifier(importSpecifier)) {
-			const lib = importSpecifier.parent.parent.parent.moduleSpecifier.getText().slice(1, -1);
-			return {
-				name: lib,
-				isFromPackage: compiler._isFromPackage(lib),
-				propertyName: (importSpecifier.propertyName ?? importSpecifier.name).getText()
-			}
-		}
-	}
-
 	/**
 	 * Check if a class is a helper class
 	 */
@@ -948,7 +975,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						cleanName: cleanType(typeChecker, type).name
 					});
 				} else {
-					console.log('++++++>>>>', targetTypeNodeName);
 					switch (targetTypeNodeName) {
 						case 'ValidatorsOf':
 						case 'ResolversOf': {
