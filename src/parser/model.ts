@@ -180,12 +180,14 @@ export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
 export interface Annotation {
 	/** Annotation name */
 	name: string
+	/** File path */
+	fileName: string
+	/** If is from tt-Model or sub-package */
+	isFromPackage: boolean
 	/** Annotation argument */
-	arg: string
-	/** Annotation file path */
-	path?: string
-	/** Is annotation from JSDoc or Decorator */
-	isJSDoc: boolean
+	params: string[]
+	/** Target tsNode */
+	tsNode: ts.Node
 }
 
 /** Default scalar node */

@@ -182,7 +182,10 @@ export class Compiler {
 	 * Check package name
 	 * Utils for child packages
 	 */
-	_isPackageName(packageName: string) {
-		return packageName === 'tt-model';
+	_isFromPackage(filePath: string | ts.Node | undefined) {
+		if (filePath == null) return false;
+		else if (typeof filePath !== 'string')
+			filePath = filePath.getSourceFile().fileName;
+		return filePath.includes('/node_modules/tt-model/');
 	}
 }

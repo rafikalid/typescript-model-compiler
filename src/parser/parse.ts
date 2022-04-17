@@ -44,6 +44,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			const { tsNode, parentNode, isInput, isImplementation, entityName, parentTsNode } = QItem;
 			const tsNodeType = QItem.tsNodeType ?? typeChecker.getTypeAtLocation(tsNode);
 			const tsNodeSymbol = QItem.tsNodeSymbol ?? tsNodeType.symbol;
+			/** Do not parse return values and params */
+			let ignoreReturnedTypes = QItem.ignoreReturnedTypes;
 			//* Parse jsDoc
 			const jsDoc: string[] = tsNodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
 			let jsDocTags: Map<string, (string | undefined)[]> | undefined; // Map<annotationName, annotationValue>
@@ -72,8 +74,66 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			}
 			//* Parse decorators
 			const annotations: Annotation[] = [];
-			//TODO parse decorators
-			//TODO ignore if @ignore found
+			const decorators = tsNode.decorators;
+			if (decorators != null) for (let j = 0, len = decorators.length ?? 0; j < len; ++j) {
+				const decorator = decorators[j];
+				const expr = decorator.expression;
+				let identifier: ts.Expression;
+				let args: string[] = [];
+				if (ts.isCallExpression(expr)) {
+					identifier = expr.expression;
+					expr.arguments?.forEach(arg => {
+						args.push(arg.getText());
+					});
+				} else {
+					identifier = expr;
+				}
+				if (ts.isPropertyAccessExpression(identifier)) identifier = identifier.name;
+				// Get aliased decorator
+				const aliasSym = typeChecker.getSymbolAtLocation(identifier);
+				if (aliasSym == null) continue;
+				const aliasedSym = typeChecker.getAliasedSymbol(aliasSym);
+				const decoVar = aliasedSym.declarations?.[0];
+
+				let annotationName: string;
+				if (decoVar == null) continue;
+				else if (ts.isVariableDeclaration(decoVar)) {
+					//* Created from macro
+					annotationName = _getFullQualifiedName(decoVar);
+				} else if (ts.isFunctionDeclaration(decoVar) && decoVar.name != null) {
+					//* Annotation as name
+					annotationName = _getFullQualifiedName(decoVar);
+				} else continue;
+				/** Is from tt-model or its sub-package */
+				const isFromPackage = false;
+				//* Add to jsDoc
+				jsDoc.push(`@${annotationName} ${args.join(', ')}`);
+
+				//* Add annotation
+				annotations.push({
+					name: annotationName,
+					fileName: decoVar.getSourceFile().fileName,
+					isFromPackage,
+					params: args,
+					tsNode: tsNode
+				});
+				if (isFromPackage) {
+					switch (annotationName) {
+						case 'ignore':
+							continue rootLoop;
+						case 'convert':
+						case 'afterResolve':
+						case 'beforeResolve':
+						case 'afterValidate':
+						case 'beforeValidate':
+							ignoreReturnedTypes = true;
+							break;
+					}
+				}
+				//* Check if is a macro
+				console.log('>>', decoVar.getSourceFile().fileName);
+				console.log('====ANNOTATION>>', annotationName, decoVar.getText());
+			};
 			//* Parse node
 			switch (tsNode.kind) {
 				case ts.SyntaxKind.InterfaceDeclaration:
@@ -84,7 +144,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (entityNode.typeParameters != null) continue rootLoop;
 					//* Get entity name
 					if (entityNode.name == null) throw `Unexpected anonymous ${isClass ? 'class' : 'interface'} at ${getNodePath(entityNode)}`;
-					const entityName = _getFullQualifiedName(entityNode.name);
+					const entityName = _getFullQualifiedName(entityNode);
 					//* Check has export keyword
 					const hasExportKeyword = tsNode.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
 					if (!hasExportKeyword) {
@@ -96,6 +156,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					let entity: Node | undefined;
 					let isImplementation: boolean; // If is @entity or @resolver or validators
 					if (implemented.type === HelperClass.ENTITY) {
+						ignoreReturnedTypes = false;
 						// Check if has @entity jsDoc tag
 						if (jsDocTags == null) {
 							_ignoreEntity(entityName, '@entity', tsNode);
@@ -167,6 +228,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Scalar" at: ${getNodePath(entityNode)}`;
 								}
 								kind = Kind.SCALAR;
+								ignoreReturnedTypes = true;
 								break;
 							case HelperClass.UNION:
 								if (jsDocTags != null) {
@@ -175,6 +237,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Union" at: ${getNodePath(entityNode)}`;
 								}
 								kind = Kind.UNION;
+								ignoreReturnedTypes = true;
 								break;
 							default: {
 								let n: never = implemented.type;
@@ -210,7 +273,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							entityName: s.name,
 							parentNode: entity,
 							tsNodeSymbol: s,
-							isImplementation
+							isImplementation,
+							ignoreReturnedTypes
 						});
 					});
 					break;
@@ -297,7 +361,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								isInput,
 								tsNode: d,
 								entityName: param.name,
-								parentNode: method
+								parentNode: method,
+								ignoreReturnedTypes
 							});
 						});
 					}
@@ -334,18 +399,16 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						}
 					}
 					//* resolve type
-					/** Ignore methods returned types for scalars and unions */
-					const parseReturnedTypes = parentNode.kind !== Kind.UNION && parentNode.kind !== Kind.SCALAR;
-					if (parseReturnedTypes)
-						Q.push({
-							isImplementation,
-							isInput,
-							tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
-							parentTsNode: tsNode,
-							entityName,
-							parentNode: field,
-							tsNodeType: propType //tsNodeType
-						});
+					Q.push({
+						isImplementation,
+						isInput,
+						tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
+						parentTsNode: tsNode,
+						entityName,
+						parentNode: field,
+						tsNodeType: propType, //tsNodeType
+						ignoreReturnedTypes
+					});
 					break;
 				}
 				case ts.SyntaxKind.Parameter: {
@@ -371,7 +434,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						tsNode: paramNode.type!,//_nodeType(paramNode.type!, tsNodeType),
 						parentTsNode: tsNode,
 						entityName,
-						parentNode: param
+						parentNode: param,
+						ignoreReturnedTypes
 					});
 					break;
 				}
@@ -418,67 +482,69 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							tsNodes: [parentTsNode ?? tsNode],
 							isAsync: cleanResult.hasPromise
 						};
-						//* Add reference for check
-						(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
-						//* resolve generics
-						types.forEach(type => {
-							const typeName = typeChecker.typeToString(type);
-							const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
-							if (targetMap.has(typeName)) { }
-							else if (
-								typeName.endsWith('>') || typeName.endsWith(']')
-							) {
-								const typeRef = type as ts.TypeReference;
-								const typeRefNode = typeChecker.typeToTypeNode(typeRef, undefined, undefined);
-								if (typeRefNode == null)
-									errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(parentTsNode ?? tsNode)}`);
-								else if (ts.isArrayTypeNode(typeRefNode)) {
-									Q.push({
-										isInput,
-										tsNode: typeRefNode,
-										parentTsNode: parentTsNode,
-										tsNodeType: type,
-										entityName: typeName,
-										parentNode: undefined,
-										tsNodeSymbol: type.symbol,
-										isImplementation
-									});
-								} else {
-									//* Resolve generics
-									const entity: ObjectNode = {
-										kind: Kind.OBJECT,
-										annotations: [],
-										fields: new Map(),
-										inherit: [],
-										isClass: false,
-										isInput,
-										jsDoc: [], //TODO get from original entity
-										jsDocTags: new Map(), //TODO get from original tag
-										name: typeName,
-										tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
-									};
-									targetMap.set(typeName, entity);
-									type.getProperties().forEach(s => {
-										const dec = s.valueDeclaration ?? s.declarations?.[0] as ts.PropertyDeclaration | undefined;
-										if (dec == null) {
-											errors.push(`Could not find property declaration for "${typeName}.${s.name}" at ${getNodePath(tsNode)}`);
-											return;
-										}
-										const propType = typeChecker.getTypeOfSymbolAtLocation(s, typeRefNode);
+						if (!ignoreReturnedTypes) {
+							//* Add reference for check
+							(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
+							//* resolve generics
+							types.forEach(type => {
+								const typeName = typeChecker.typeToString(type);
+								const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
+								if (targetMap.has(typeName)) { }
+								else if (
+									typeName.endsWith('>') || typeName.endsWith(']')
+								) {
+									const typeRef = type as ts.TypeReference;
+									const typeRefNode = typeChecker.typeToTypeNode(typeRef, undefined, undefined);
+									if (typeRefNode == null)
+										errors.push(`Could not create node from type ${typeChecker.typeToString(type)} at ${getNodePath(parentTsNode ?? tsNode)}`);
+									else if (ts.isArrayTypeNode(typeRefNode)) {
 										Q.push({
 											isInput,
-											tsNode: dec,
+											tsNode: typeRefNode,
 											parentTsNode: parentTsNode,
-											tsNodeType: propType,
-											entityName: s.name,
-											parentNode: entity,
-											tsNodeSymbol: s,
+											tsNodeType: type,
+											entityName: typeName,
+											parentNode: undefined,
+											tsNodeSymbol: type.symbol,
 											isImplementation
 										});
-									});
+									} else {
+										//* Resolve generics
+										const entity: ObjectNode = {
+											kind: Kind.OBJECT,
+											annotations: [],
+											fields: new Map(),
+											inherit: [],
+											isClass: false,
+											isInput,
+											jsDoc: [], //TODO get from original entity
+											jsDocTags: new Map(), //TODO get from original tag
+											name: typeName,
+											tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
+										};
+										targetMap.set(typeName, entity);
+										type.getProperties().forEach(s => {
+											const dec = s.valueDeclaration ?? s.declarations?.[0] as ts.PropertyDeclaration | undefined;
+											if (dec == null) {
+												errors.push(`Could not find property declaration for "${typeName}.${s.name}" at ${getNodePath(tsNode)}`);
+												return;
+											}
+											const propType = typeChecker.getTypeOfSymbolAtLocation(s, typeRefNode);
+											Q.push({
+												isInput,
+												tsNode: dec,
+												parentTsNode: parentTsNode,
+												tsNodeType: propType,
+												entityName: s.name,
+												parentNode: entity,
+												tsNodeSymbol: s,
+												isImplementation
+											});
+										});
+									}
 								}
-							}
-						});
+							});
+						}
 					} else {
 						tpRef = {
 							kind: Kind.STATIC_VALUE,
@@ -552,7 +618,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				}
 				case ts.SyntaxKind.EnumDeclaration: {
 					const enumNode = tsNode as ts.EnumDeclaration;
-					const entityName = _getFullQualifiedName(enumNode.name);
+					const entityName = _getFullQualifiedName(enumNode);
 					const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 					let entity = targetMap.get(entityName);
 					if (entity != null)
@@ -782,7 +848,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	return {
 		input: INPUT_ENTITIES,
 		output: OUTPUT_ENTITIES,
-		// ignored: IGNORED_ENTITIES
+		ignored: IGNORED_ENTITIES
 		// HELPER_CLASSES
 	}
 
@@ -832,18 +898,17 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 
 	/** @private Get node full qualified name including parent namespace */
 	function _getFullQualifiedName(tsNode: ts.Node): string {
-		const entityName = _getNodeName(tsNode);
-		if (tsNode.parent.kind === ts.SyntaxKind.SourceFile) return entityName;
-		else {
-			let n: string[] = [entityName];
-			let p: ts.Node = tsNode;
-			while ((p = p.parent) && p.kind !== ts.SyntaxKind.SourceFile) {
-				if (ts.isModuleDeclaration(p) && p.name != null) {
-					n.push(p.name.getText());
-				}
+		const result: string[] = [];
+		do {
+			const name = (tsNode as any).name;
+			if (name != null) {
+				result.push(name.getText());
 			}
-			return n.reverse().join('.');
-		}
+			tsNode = tsNode.parent;
+		} while (tsNode != null && tsNode.kind !== ts.SyntaxKind.SourceFile);
+		if (result.length === 0)
+			throw `Could not find qualified name at: ${getNodePath(tsNode)}`;
+		return result.reverse().join('.');
 	}
 
 	/** @private return lib path */
@@ -853,7 +918,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			const lib = importSpecifier.parent.parent.parent.moduleSpecifier.getText().slice(1, -1);
 			return {
 				name: lib,
-				isFromPackage: compiler._isPackageName(lib),
+				isFromPackage: compiler._isFromPackage(lib),
 				propertyName: (importSpecifier.propertyName ?? importSpecifier.name).getText()
 			}
 		}
@@ -869,11 +934,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		tsEntity.heritageClauses?.forEach(close => {
 			close.types.forEach(typeNode => {
 				const type = typeChecker.getTypeFromTypeNode(typeNode);
-				//* Get type and name
-				const lib = _getImportLib(typeNode.expression)
+				const aliasedSym = type.aliasSymbol ?? type.symbol;
+				const targetTypeNodeName = aliasedSym.name;
 				//* check if from
 				let cType: HelperClass;
-				if (!lib?.isFromPackage) {
+				const notFromTTModelPackage = !compiler._isFromPackage(aliasedSym.declarations?.[0]);
+				if (notFromTTModelPackage) {
 					cType = HelperClass.ENTITY;
 					const entityName = typeChecker.typeToString(type);
 					entities.push(entityName);
@@ -881,45 +947,48 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						name: entityName,
 						cleanName: cleanType(typeChecker, type).name
 					});
-				} else switch (lib.propertyName) {
-					case 'ValidatorsOf':
-					case 'ResolversOf': {
-						const isInterface = tsEntity.kind === ts.SyntaxKind.InterfaceDeclaration;
-						if (isInterface)
-							throw `An interface could not extends "${lib.propertyName}" at: ${getNodePath(typeNode)}`;
-					}
-					case 'Scalar':
-					case 'Union': {
-						const targetTypeNode = typeNode.typeArguments?.[0];
-						if (targetTypeNode == null)
-							throw `Missing type for "${lib.propertyName}" at: ${getNodePath(typeNode)}`;
-						const targetType = typeChecker.getTypeFromTypeNode(targetTypeNode);
-						const entityName = typeChecker.typeToString(targetType);
-						entities.push(entityName);
-						entityNodes.push({
-							name: entityName,
-							cleanName: cleanType(typeChecker, targetType).name
-						});
-						switch (lib.propertyName) {
-							case 'ValidatorsOf': cType = HelperClass.VALIDATORS; break;
-							case 'ResolversOf': cType = HelperClass.RESOLVERS; break;
-							case 'Scalar': cType = HelperClass.SCALAR; break;
-							case 'Union': cType = HelperClass.UNION; break;
-							default: {
-								let n: never = lib.propertyName;
-								cType = HelperClass.ENTITY;// Make typescript happy :D
-							}
+				} else {
+					console.log('++++++>>>>', targetTypeNodeName);
+					switch (targetTypeNodeName) {
+						case 'ValidatorsOf':
+						case 'ResolversOf': {
+							const isInterface = tsEntity.kind === ts.SyntaxKind.InterfaceDeclaration;
+							if (isInterface)
+								throw `An interface could not extends "${targetTypeNodeName}" at: ${getNodePath(typeNode)}`;
 						}
-						break;
-					}
-					default: {
-						cType = HelperClass.ENTITY;
-						const entityName = typeChecker.typeToString(type);
-						entities.push(entityName);
-						entityNodes.push({
-							name: entityName,
-							cleanName: cleanType(typeChecker, type).name
-						});
+						case 'Scalar':
+						case 'Union': {
+							const targetTypeNode = typeNode.typeArguments?.[0];
+							if (targetTypeNode == null)
+								throw `Missing type for "${targetTypeNodeName}" at: ${getNodePath(typeNode)}`;
+							const targetType = typeChecker.getTypeFromTypeNode(targetTypeNode);
+							const entityName = typeChecker.typeToString(targetType);
+							entities.push(entityName);
+							entityNodes.push({
+								name: entityName,
+								cleanName: cleanType(typeChecker, targetType).name
+							});
+							switch (targetTypeNodeName) {
+								case 'ValidatorsOf': cType = HelperClass.VALIDATORS; break;
+								case 'ResolversOf': cType = HelperClass.RESOLVERS; break;
+								case 'Scalar': cType = HelperClass.SCALAR; break;
+								case 'Union': cType = HelperClass.UNION; break;
+								default: {
+									let n: never = targetTypeNodeName;
+									cType = HelperClass.ENTITY;// Make typescript happy :D
+								}
+							}
+							break;
+						}
+						default: {
+							cType = HelperClass.ENTITY;
+							const entityName = typeChecker.typeToString(type);
+							entities.push(entityName);
+							entityNodes.push({
+								name: entityName,
+								cleanName: cleanType(typeChecker, type).name
+							});
+						}
 					}
 				}
 				// Check implements same generics
@@ -970,6 +1039,8 @@ interface QueueItem {
 	tsNodeSymbol?: ts.Symbol
 	/** Entity name: use for nameless objects */
 	entityName?: string
+	/** Do not parse method params and returned values for scalars and some methods */
+	ignoreReturnedTypes?: boolean
 }
 
 /** Ignored entities */
