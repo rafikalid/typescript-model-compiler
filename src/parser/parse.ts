@@ -188,7 +188,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (entityNode.typeParameters != null) continue rootLoop;
 					//* Get entity name
 					if (entityNode.name == null) throw `Unexpected anonymous ${isClass ? 'class' : 'interface'} at ${getNodePath(entityNode)}`;
-					const entityName = _getFullQualifiedName(entityNode);
+					const entityName = _getFullQualifiedName(tsNodeType);
 					//* Check has export keyword
 					const hasExportKeyword = tsNode.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
 					if (!hasExportKeyword) {
@@ -196,7 +196,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						continue rootLoop;
 					}
 					//* Get implemented or inherited entities
-					const implemented = _getImplementedEntities(entityNode);
+					const implemented = _getImplementedEntities(entityNode, tsNodeType);
 					let entity: Node | undefined;
 					let isImplementation: boolean; // If is @entity or @resolver or validators
 					if (implemented.type === HelperClass.ENTITY) {
@@ -992,24 +992,18 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	}
 
 	/** @private Get node full qualified name including parent namespace */
-	function _getFullQualifiedName(tsNode: ts.Node): string {
-		const result: string[] = [];
-		do {
-			const name = (tsNode as any).name;
-			if (name != null) {
-				result.push(name.getText());
-			}
-			tsNode = tsNode.parent;
-		} while (tsNode != null && tsNode.kind !== ts.SyntaxKind.SourceFile);
-		if (result.length === 0)
-			throw `Could not find qualified name at: ${getNodePath(tsNode)}`;
-		return result.reverse().join('.');
+	function _getFullQualifiedName(type: ts.Type): string {
+		const name = typeChecker.typeToString(type, undefined, ts.TypeFormatFlags.UseFullyQualifiedType);
+		return name.slice(name.indexOf(').') + 2);
 	}
 
 	/**
 	 * Check if a class is a helper class
 	 */
-	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration) {
+	function _getImplementedEntities(
+		tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration,
+		tsNodeType: ts.Type
+	) {
 		const entities: string[] = [];
 		const entityNodes: ImplementedEntity[] = [];
 		let resultType = HelperClass.ENTITY;
@@ -1026,7 +1020,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				const notFromTTModelPackage = !compiler._isFromPackage(aliasedSym.declarations?.[0]);
 				if (notFromTTModelPackage) {
 					cType = HelperClass.ENTITY;
-					const entityName = typeChecker.typeToString(type);
+					const entityName = typeChecker.typeToString(type, tsEntity);
 					entities.push(entityName);
 					const cleanName = cleanType(typeChecker, type);
 					entityNodes.push({
@@ -1087,7 +1081,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						}
 						default: {
 							cType = HelperClass.ENTITY;
-							const entityName = typeChecker.typeToString(type);
+							const entityName = typeChecker.typeToString(type, tsEntity);
 							entities.push(entityName);
 							const cleanName = cleanType(typeChecker, type);
 							entityNodes.push({
