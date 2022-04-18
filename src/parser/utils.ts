@@ -5,20 +5,20 @@ const IS_OF_TYPE_NULL = ts.TypeFlags.Undefined | ts.TypeFlags.Null;
  * Check if a field or param or type are required
  */
 export function doesTypeHaveNull(typeChecker: ts.TypeChecker, nodeType: ts.Type): boolean {
-	let typeName: string|undefined;
+	let typeName: string | undefined;
 	//* Union
-	if(nodeType.isUnion())
-		return nodeType.types.some(t=> doesTypeHaveNull(typeChecker, t));
+	if (nodeType.isUnion())
+		return nodeType.types.some(t => doesTypeHaveNull(typeChecker, t));
 	//* Basic check
-	else if(
+	else if (
 		(nodeType.flags & IS_OF_TYPE_NULL) &&
-		(typeName= typeChecker.typeToString(nodeType)) &&
-		(typeName==='undefined' || typeName==='null')
+		(typeName = typeChecker.typeToString(nodeType)) &&
+		(typeName === 'undefined' || typeName === 'null')
 	)
 		return true;
-	else if(nodeType.symbol?.name === 'Promise'){
+	else if (nodeType.symbol?.name === 'Promise') {
 		const tp = (nodeType as ts.TypeReference).typeArguments?.[0];
-		if(tp!=null)
+		if (tp != null)
 			return doesTypeHaveNull(typeChecker, tp);
 	}
 	return false;
@@ -28,33 +28,33 @@ export function doesTypeHaveNull(typeChecker: ts.TypeChecker, nodeType: ts.Type)
 /**
  * Remove promises and null values
  */
-export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {		
+export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
 	// Get types
-	let hasPromise= false;
+	let hasPromise = false;
 	const result: ts.Type[] = [];
 	const queue: ts.Type[] = [typeChecker.getNonNullableType(type)];
 
 	while (queue.length > 0) {
 		const tp = queue.pop()!;
-		if(tp.isIntersection() || tp.isClassOrInterface()){
+		if (tp.isIntersection() || tp.isClassOrInterface()) {
 			result.push(tp); // only resolve real type format
-		}else if(tp.isUnion()){
+		} else if (tp.isUnion()) {
 			// Fix union issue
 			queue.push(...tp.types);
 		} else if (tp.symbol?.name === 'Promise') {
-			hasPromise= true;
+			hasPromise = true;
 			const tp2 = (tp as ts.TypeReference).typeArguments?.[0];
 			if (tp2 != null) queue.push(typeChecker.getNonNullableType(tp2));
 		} else {
 			result.push(tp);
 		}
 	}
-	
-	const strTypes= result
-		.map(t=> typeChecker.typeToString(t))
-		.filter((t, i, arr)=> i === arr.indexOf(t))
-		.sort((a, b)=> a.localeCompare(b));
-	const txt= strTypes.join('|');
+
+	const strTypes = result
+		.map(t => typeChecker.typeToString(t))
+		.filter((t, i, arr) => i === arr.indexOf(t))
+		.sort((a, b) => a.localeCompare(b));
+	const txt = strTypes.join('|');
 
 	return {
 		name: txt,
@@ -83,7 +83,12 @@ export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
 // 	if(type.isUnion()){
 // 		const tp= type;
 // 		type.types.forEach(rmPromises)
-		
+
 // 	} else if(type.isIntersection()){} else if(type.symbol?.name === 'Promise'){}
 // 	return type;
 // }
+
+/** Escape string */
+export function _escapeStr(str: string) {
+	return `"${str.replace(/(["\\])/g, '\\$1')}"`
+}

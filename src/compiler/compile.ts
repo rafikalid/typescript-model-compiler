@@ -211,4 +211,77 @@ export class Compiler {
 			filePath = filePath.getSourceFile().fileName;
 		return filePath.includes('/node_modules/tt-model/');
 	}
+
+	/** Parse jsDocTag arguments */
+	_parseJsDocTagArgs(args: string | undefined): string[] {
+		const result: string[] = [];
+		if (args == null) return result;
+		/**
+		 * States
+		 * 		0: ignore white space
+		 * 		1: buffer data
+		 * 		2: inside quote
+		 */
+		let state: 0 | 1 | 2 = 0;
+		const bufferResult: string[] = [];
+		let quote: '"' | "'" = '"';
+		for (let i = 0, len = args.length; i < len; ++i) {
+			const c = args.charAt(i);
+			switch (state) {
+				case 0: // Ignore whitespace
+					switch (c) {
+						case ' ':
+							break;
+						case '"':
+						case "'":
+							state = 2; // inside quote
+							quote = c;
+							break;
+						default:
+							state = 1; // buffer data
+							bufferResult.push(c);
+							break;
+					}
+					break;
+				case 1: // Buffer result
+					switch (c) {
+						case '"':
+						case "'":
+							state = 2;
+							quote = c;
+							result.push(bufferResult.join(''));
+							bufferResult.length = 0;
+							break;
+						case ' ':
+						case ',':
+						case ';':
+							state = 0;
+							result.push(bufferResult.join(''));
+							bufferResult.length = 0;
+							break;
+						default:
+							bufferResult.push(c);
+					}
+					break;
+				case 2: // Quoted
+					if (c === '\\') { // ignore next char
+						++i;
+						bufferResult.push(args.charAt(i));
+					} else if (c === quote) {
+						state = 0;
+						result.push(bufferResult.join(''));
+						bufferResult.length = 0;
+					} else {
+						bufferResult.push(c);
+					}
+					break;
+				default: {
+					const n: never = state;
+				}
+			}
+		}
+		if (bufferResult.length)
+			result.push(bufferResult.join(''));
+		return result;
+	}
 }

@@ -2,8 +2,8 @@ import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, DefaultScalarNode, EnumMemberNode, FieldType, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
-import { cleanType, doesTypeHaveNull } from "./utils";
+import { Annotation, DefaultScalarNode, EnumMemberNode, FieldType, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
+import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
 import { defaultScalars } from 'tt-model';
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
@@ -52,13 +52,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			let ignoreReturnedTypes = QItem.ignoreReturnedTypes;
 			//* Parse jsDoc
 			const jsDoc: string[] = tsNodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
-			let jsDocTags: Map<string, (string | undefined)[]> | undefined; // Map<annotationName, annotationValue>
+			let jsDocTags: Map<string, JsDocTag[]> | undefined; // Map<annotationName, annotationValue>
 			const foundJsDocTags = tsNodeSymbol?.getJsDocTags();
 			if (foundJsDocTags != null && foundJsDocTags.length > 0) {
 				jsDocTags = new Map();
 				for (let i = 0, len = foundJsDocTags.length; i < len; ++i) {
 					const tag = foundJsDocTags[i];
-					const tagText = tag.text?.map(c => c.text).join("\n").trim();
+					const tagText = tag.text?.map(c => c.text.trim()).join("\n");
 					// Ignore
 					switch (tag.name) {
 						case 'ignore':
@@ -71,9 +71,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							break;
 					}
 					// Save tag
+					const jsDocTag: JsDocTag = {
+						name: tag.name,
+						args: compiler._parseJsDocTagArgs(tagText)
+					}
 					const tags = jsDocTags.get(tag.name);
-					if (tags == null) jsDocTags.set(tag.name, [tagText]);
-					else tags.push(tag.name);
+					if (tags == null) jsDocTags.set(tag.name, [jsDocTag]);
+					else tags.push(jsDocTag);
 				}
 			}
 			//* Parse decorators
@@ -94,24 +98,24 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				}
 				if (ts.isPropertyAccessExpression(identifier)) identifier = identifier.name;
 				// Get aliased decorator
+				// const decoType = typeChecker.getTypeAtLocation(identifier);
+				// const annotationName = _getFullQualifiedName(decoType);
+				// console.log('ANNOT>>', annotationName);
+				// const decoVar = (decoType.aliasSymbol ?? decoType.symbol)?.declarations?.[0];
+				// if (decoVar == null)
+				// 	throw `Could not find annotation @${annotationName}. Used at: ${getNodePath(tsNode)}`;
 				const aliasSym = typeChecker.getSymbolAtLocation(identifier);
 				if (aliasSym == null) continue;
 				const aliasedSym = typeChecker.getAliasedSymbol(aliasSym);
 				const decoVar = aliasedSym.declarations?.[0];
 
 				let annotationName: string;
-				if (decoVar == null) continue;
-				else if (ts.isVariableDeclaration(decoVar)) {
-					//* Created from macro
-					annotationName = _getFullQualifiedName(decoVar);
-				} else if (ts.isFunctionDeclaration(decoVar) && decoVar.name != null) {
-					//* Annotation as name
-					annotationName = _getFullQualifiedName(decoVar);
-				} else continue;
+				if (decoVar == null || (decoVar as any).name == null) continue;
+				annotationName = _getFullQualifiedNodeName(decoVar);
 				/** Is from tt-model or its sub-package */
-				const isFromPackage = false;
+				const isFromPackage = compiler._isFromPackage(decoVar);
 				//* Add to jsDoc
-				jsDoc.push(`@${annotationName} ${args.join(', ')}`);
+				jsDoc.push(`@${annotationName} ${args.map(a => a.indexOf(' ') == -1 ? a : _escapeStr(a)).join(' ')}`);
 
 				//* Check for special annotations
 				if (isFromPackage) {
@@ -132,8 +136,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				let decoFactoryType: ts.Type;
 				let decoFactorySym: ts.Symbol;
 				if (
-					ts.isVariableDeclaration(decoVar) &&
-					(varExpr = decoVar.initializer) &&
+					// ts.isVariableDeclaration(decoVar) &&
+					(varExpr = (decoVar as any).initializer) &&
 					(ts.isCallExpression(varExpr)) &&
 					(decoFactoryType = typeChecker.getTypeAtLocation(varExpr.expression)) &&
 					(decoFactorySym = (decoFactoryType.aliasSymbol ?? decoFactoryType.symbol)) &&
@@ -712,7 +716,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				}
 				case ts.SyntaxKind.EnumDeclaration: {
 					const enumNode = tsNode as ts.EnumDeclaration;
-					const entityName = _getFullQualifiedName(enumNode);
+					const entityName = _getFullQualifiedName(tsNodeType);
 					const targetMap = isInput ? INPUT_ENTITIES : OUTPUT_ENTITIES;
 					let entity = targetMap.get(entityName);
 					if (entity != null)
@@ -997,6 +1001,21 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		return name.slice(name.indexOf(').') + 2);
 	}
 
+	/** Get node full qualified name */
+	function _getFullQualifiedNodeName(tsNode: ts.Node) {
+		const result: string[] = [];
+		do {
+			const name = (tsNode as any).name;
+			if (name != null) {
+				result.push(name.getText());
+			}
+			tsNode = tsNode.parent;
+		} while (tsNode != null && tsNode.kind !== ts.SyntaxKind.SourceFile);
+		if (result.length === 0)
+			throw `Could not find qualified name at: ${getNodePath(tsNode)}`;
+		return result.reverse().join('.');
+	}
+
 	/**
 	 * Check if a class is a helper class
 	 */
@@ -1169,11 +1188,11 @@ export type GetNodeNameSignature = (node: ts.Node) => string
 
 
 //* Merge jsDoc tags
-function _mergeJsDocTags(target: Map<string, (string | undefined)[]>, src: Map<string, (string | undefined)[]>) {
+function _mergeJsDocTags(target: Map<string, JsDocTag[]>, src: Map<string, JsDocTag[]>) {
 	src.forEach(function (value, key) {
 		const v = target.get(key);
 		if (v == null) target.set(key, value);
-		else v.push(...value);
+		else if (value.length) v.push(...value);
 	});
 }
 

@@ -21,7 +21,7 @@ export interface _Node {
 	/** JS DOCS */
 	jsDoc: string[];
 	/** jsDocTags */
-	jsDocTags: Map<string, (string | undefined)[]> | undefined
+	jsDocTags: Map<string, JsDocTag[]> | undefined
 	/** code path where node exists, debug mode only */
 	tsNodes: ts.Node[]
 	/** Is input or output or both (undefined) */
@@ -39,12 +39,12 @@ export interface ObjectNode extends _NamedNode {
 	kind: Kind.OBJECT
 	/** inherited classes and interfaces */
 	inherit: string[];
-	/** jsDoc tags */
-	jsDocTags: Map<string, (string | undefined)[]>
 	/** Do order fields by name */
 	// orderByName: boolean | undefined;
 	/** Fields */
 	fields: Map<string, FieldNode>;
+	/** jsDocTags */
+	jsDocTags: Map<string, JsDocTag[]>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
 	/** Is target a class */
@@ -64,7 +64,7 @@ export interface FieldNode extends _NamedNode {
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
 	/** jsDoc tags */
-	jsDocTags: Map<string, (string | undefined)[]> | undefined
+	jsDocTags: _NamedNode["jsDocTags"] | undefined
 	/** Name of the class, interface or type */
 	className: string | undefined;
 	/** Content type: List or type name */
@@ -209,4 +209,10 @@ export interface Annotation {
 export interface DefaultScalarNode extends _NamedNode {
 	kind: Kind.DEFAULT_SCALAR
 	class: new () => Scalar<any>
+}
+
+/** Js Doc Tag */
+export interface JsDocTag {
+	name: string
+	args: string[]
 }
