@@ -11,7 +11,7 @@ const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
 /** 
  * Parse schema
  */
-export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[]) {
+export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[], contextEntities: string[]) {
 	//* Prepare
 	const typeChecker = program.getTypeChecker();
 	const tsNodePrinter = ts.createPrinter({
@@ -20,13 +20,17 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	});
 	//* Store values
 	const IGNORED_ENTITIES: Map<string, IgnoredEntity[]> = new Map();
-	const INPUT_ENTITIES: Map<string, RootNode> = new Map();
+	const INPUT_ENTITIES: Map<string, RootNode | undefined> = new Map();
 	const OUTPUT_ENTITIES: Map<string, RootNode> = new Map();
 	const HELPER_CLASSES: (ResolverClassNode | ValidatorClassNode | ScalarNode | UnionNode)[] = [];
 	const LITERAL_OBJECTS: LiteralObject[] = [];
 	/** Save reference for check */
 	const INPUT_REFERENCES: Map<string, ts.Node> = new Map();
 	const OUTPUT_REFERENCES: Map<string, ts.Node> = new Map();
+	//* Add context entities
+	contextEntities.forEach(entity => {
+		INPUT_ENTITIES.set(entity, undefined);
+	});
 	//* Prepare queue
 	const Q: QueueItem[] = [];
 	for (let i = 0, len = files.length; i < len; ++i) {
@@ -477,7 +481,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					parentNode.params.push(param);
 					Q.push({
 						isImplementation,
-						isInput,
+						isInput: true, // Change to input entities
 						tsNode: paramNode.type!,//_nodeType(paramNode.type!, tsNodeType),
 						parentTsNode: tsNode,
 						entityName,
@@ -939,8 +943,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	//* Return
 	return {
 		input: INPUT_ENTITIES,
-		output: OUTPUT_ENTITIES,
-		ignored: IGNORED_ENTITIES
+		output: OUTPUT_ENTITIES
 		// HELPER_CLASSES
 	}
 
@@ -1112,7 +1115,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 
 	/** Add union or scalar to entities */
 	function _addUnionOrScalar(
-		targetMap: Map<string, RootNode>,
+		targetMap: Map<string, RootNode | undefined>,
 		helper: ScalarNode | UnionNode,
 		name: string
 	) {

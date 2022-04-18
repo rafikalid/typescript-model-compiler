@@ -64,10 +64,10 @@ export class Compiler {
 		const mapPatterns = this.resolvePatterns(program, filePaths.values());
 
 		//* Parse patterns
-		info(`Parse >>`);
 		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
-			console.log('--- PATTERN:', mapPatterns[i].pattern);
-			const parsed = this._parse(program, mapPatterns[i].files);
+			const parseOptions = mapPatterns[i];
+			info(`Parsing >> ${parseOptions.methodText}`);
+			const parsed = this._parse(program, parseOptions.files, parseOptions.contextEntities);
 			console.log(printTree(parsed, '\t'));
 		}
 
@@ -90,7 +90,7 @@ export class Compiler {
 	}
 
 	/** Resolve patterns by scan */
-	resolvePatterns(program: ts.Program, files: IterableIterator<string>) {
+	resolvePatterns(program: ts.Program, files: IterableIterator<string>): ResolvedPattern[] {
 		return resolvePatterns(program, files, this._resolvePatternsOptions());
 	}
 
@@ -101,6 +101,7 @@ export class Compiler {
 				className: 'Model',
 				methods: new Set(['scan', 'scanGraphQL']),
 				resolve: (node: ts.CallExpression, methodName: string, srcFile: ts.SourceFile): ResolvedPattern => {
+					const typeChecker = this.#program!.getTypeChecker();
 					if (node.arguments.length !== 1)
 						throw new Error(`Expected exactly one argument for Model.${methodName} at: ${getNodePath(node)}`);
 					const arg = node.arguments[0];
@@ -112,16 +113,35 @@ export class Compiler {
 					if (typeArguments == null)
 						throw new Error(`Expect type references for Mode.${methodName} at: ${getNodePath(node)}`);
 					const pattern = arg.getText().slice(1, -1);
+					//* Resolve Context Entities
+					const contextEntities: string[] = [];
+					const additionalEntitiesArg = node.typeArguments?.[2];
+					if (additionalEntitiesArg == null) { }
+					else if (ts.isTupleTypeNode(additionalEntitiesArg)) {
+						additionalEntitiesArg.elements?.forEach(typeNode => {
+							if (ts.isNamedTupleMember(typeNode)) typeNode = typeNode.type;
+							const type = typeChecker.getTypeFromTypeNode(typeNode);
+							const typeName = (type.aliasSymbol ?? type.symbol).name;
+							contextEntities.push(typeName);
+						});
+					} else {
+						const type = typeChecker.getTypeFromTypeNode(additionalEntitiesArg);
+						const typeName = (type.aliasSymbol ?? type.symbol).name;
+						contextEntities.push(typeName);
+					}
+					//* Return
 					return {
 						filePath: srcFile.fileName,
 						lib: 'tt-model',
 						methodName,
+						methodText: node.getText(),
 						node,
 						pattern,
 						files: resolveFilePattern(srcFile.fileName, pattern),
 						schemaEntityName: typeArguments[0].getText(),
 						contextEntityName: typeArguments[1]?.getText(),
 						// TODO resolve annotation class
+						contextEntities
 					};
 				}
 			}
@@ -173,9 +193,12 @@ export class Compiler {
 
 	/**
 	 * Parse files
+	 * @param { ts.Program } program
+	 * @param { string[] } files				- Path to files to parse
+	 * @param { string[] } contextEntities		- Additional entities added by user
 	 */
-	_parse(program: ts.Program, files: string[]) {
-		return parseSchema(this, program, files);
+	_parse(program: ts.Program, files: string[], contextEntities: string[]) {
+		return parseSchema(this, program, files, contextEntities);
 	}
 
 	/**

@@ -98,6 +98,10 @@ export interface _ResolvedPattern {
 	node: ts.Node
 	/** Resolved files via Glob pattern */
 	files: string[]
+	/** Additional entities added by user */
+	contextEntities: string[]
+	/** Method text: used for debug */
+	methodText: string
 }
 
 /** Graphql pattern */

@@ -1,38 +1,47 @@
+import { Kind } from '@parser/kind';
 import ts from 'typescript';
 import { getNodePath } from './node-path';
 
 /** Print object and map into console as tree */
 export function printTree(root: any, tab: string) {
+	const entities: Set<any> = new Set();
 	return JSON.stringify(root, _replacer, tab);
+	function _replacer(k: string, v: any) {
+		if (v == null) return v;
+		else if (typeof v === 'number' && k === 'kind')
+			return `Kind.${Kind[v]}`;
+		else if (
+			typeof v === 'string' ||
+			typeof v === 'number' ||
+			typeof v === 'boolean'
+		)
+			return v;
+		else if (typeof v === 'symbol') return v.toString();
+		else if (typeof v === 'function')
+			return `<${v.name}(${', '.repeat(v.length)})>`;
+		else if (v instanceof Map) {
+			let r: Record<any, any> = {};
+			v.forEach((mv, mk) => {
+				r[mk] = mv;
+			});
+			return r;
+		} else if (v instanceof Set) return Array.from(v);
+		else if (k === 'tsNodes') return (v as any[]).map(e => getNodePath(e))
+		else if (k === 'tsNode') return getNodePath(v);
+		else if (entities.has(v)) return `< CIRCULAR! >`
+		// else if (
+		// 	// k === 'node' &&
+		// 	typeof v === 'object' &&
+		// 	typeof v?.kind === 'number'
+		// )
+		// 	return '<TS.REF>';
+		else {
+			entities.add(v);
+			return v;
+		}
+	}
 }
 
-function _replacer(k: string, v: any) {
-	if (
-		typeof v === 'string' ||
-		typeof v === 'number' ||
-		typeof v === 'boolean'
-	)
-		return v;
-	else if (typeof v === 'symbol') return v.toString();
-	else if (typeof v === 'function')
-		return `<${v.name}(${', '.repeat(v.length)})>`;
-	else if (v instanceof Map) {
-		let r: Record<any, any> = {};
-		v.forEach((mv, mk) => {
-			r[mk] = mv;
-		});
-		return r;
-	} else if (v instanceof Set) return Array.from(v);
-	else if (k === 'tsNodes') return (v as any[]).map(e => getNodePath(e))
-	else if (k === 'tsNode') return getNodePath(v);
-	// else if (
-	// 	// k === 'node' &&
-	// 	typeof v === 'object' &&
-	// 	typeof v?.kind === 'number'
-	// )
-	// 	return '<TS.REF>';
-	else return v;
-}
 
 // function _print(tab: string, obj: any){
 // 	var arr: string[]= [];
