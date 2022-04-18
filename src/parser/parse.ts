@@ -228,7 +228,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								isClass,
 								jsDoc,
 								jsDocTags,
-								tsNodes: [entityNode]
+								tsNodes: [entityNode],
+								parentsName: undefined
 							};
 							targetMap.set(entityName, entity);
 						} else if (entity.kind !== Kind.OBJECT) {
@@ -295,7 +296,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							tsNodes: [entityNode],
 							entities: implemented.nodes,
 							annotations,
-							fields: new Map()
+							fields: new Map(),
+							parentsName: implemented.strType
 						};
 						entity = entity2;
 						HELPER_CLASSES.push(entity2);
@@ -368,19 +370,53 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					}
 					//* Get type info
 					const cleanedType = cleanType(typeChecker, propType);
+
+					// Add field
+					let field = parentNode.fields.get(entityName);
+					const isOptional = propertyNode.questionToken == null || propertyNode.type == null ||
+						doesTypeHaveNull(typeChecker, typeChecker.getTypeFromTypeNode(propertyNode.type));
+					if (field == null) {
+						field = {
+							kind: Kind.FIELD,
+							isInput,
+							annotations,
+							jsDoc,
+							jsDocTags,
+							className,
+							name: entityName,
+							tsNodes: [propertyNode],
+							method: undefined,
+							required: !isOptional,
+							idx: propertyNode.parent.getChildren().indexOf(propertyNode),
+							type: undefined,
+							parent: parentNode
+						};
+						parentNode.fields.set(entityName, field);
+					} else {
+						if (field.method != null && isMethod)
+							throw `Duplicate ${isInput ? 'validator' : 'resolver'} for ${parentNode.name}.${entityName} at ${getNodePath(field.method.tsNode)} and ${getNodePath(tsNode)}`;
+						field.annotations.push(...annotations);
+						field.jsDoc.push(...jsDoc);
+						field.tsNodes.push(tsNode);
+						if (jsDocTags != null) {
+							if (field.jsDocTags == null) field.jsDocTags = jsDocTags;
+							else _mergeJsDocTags(field.jsDocTags, jsDocTags);
+						}
+					}
 					//* Method
 					let method: MethodNode | undefined;
 					if (isMethod) {
 						// Ignore if is entity (not implementation)
 						if (!isImplementation) continue rootLoop;
 						if (className == null) throw `Unexpected anonymous class for method implementation at ${getNodePath(tsNode)}`;
-						method = {
+						method = field.method = {
 							kind: Kind.METHOD,
 							class: className,
 							name: entityName,
 							isStatic: tsNode.modifiers?.some(n => n.kind === ts.SyntaxKind.StaticKeyword) ?? false,
 							params: [],
 							tsNode: tsNode,
+							parent: field,
 							type: {
 								kind: Kind.REF,
 								isAsync: cleanedType.hasPromise,
@@ -388,7 +424,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								jsDoc,
 								jsDocTags,
 								name: cleanedType.name,
-								tsNodes: [tsNode]
+								tsNodes: [tsNode],
+								isFromPackage: false
 							}
 						};
 						// Resolve params
@@ -405,38 +442,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								ignoreReturnedTypes
 							});
 						});
-					}
-					// Add field
-					let field = parentNode.fields.get(entityName);
-					const isOptional = propertyNode.questionToken == null || propertyNode.type == null ||
-						doesTypeHaveNull(typeChecker, typeChecker.getTypeFromTypeNode(propertyNode.type));
-					if (field == null) {
-						field = {
-							kind: Kind.FIELD,
-							isInput,
-							annotations,
-							jsDoc,
-							jsDocTags,
-							className,
-							name: entityName,
-							tsNodes: [propertyNode],
-							method,
-							required: !isOptional,
-							idx: propertyNode.parent.getChildren().indexOf(propertyNode),
-							type: undefined
-						};
-						parentNode.fields.set(entityName, field);
-					} else {
-						if (field.method != null && method)
-							throw `Duplicate ${isInput ? 'validator' : 'resolver'} for ${parentNode.name}.${entityName} at ${getNodePath(field.method.tsNode)} and ${getNodePath(method.tsNode)}`;
-						field.method = method;
-						field.annotations.push(...annotations);
-						field.jsDoc.push(...jsDoc);
-						field.tsNodes.push(tsNode);
-						if (jsDocTags != null) {
-							if (field.jsDocTags == null) field.jsDocTags = jsDocTags;
-							else _mergeJsDocTags(field.jsDocTags, jsDocTags);
-						}
 					}
 					//* resolve type
 					Q.push({
@@ -465,7 +470,9 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						jsDoc,
 						jsDocTags,
 						tsNodes: [paramNode],
-						type: undefined
+						type: undefined,
+						parent: parentNode,
+						isParentObject: false
 					};
 					parentNode.params.push(param);
 					Q.push({
@@ -513,6 +520,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					//* Add as reference
 					let tpRef: FieldType;
 					if (staticValue == null) {
+						const isTypeFromPackage = compiler._isFromPackage((tsNodeType.aliasSymbol ?? tsNodeType.symbol)?.declarations?.[0]);
 						tpRef = {
 							kind: Kind.REF,
 							isInput,
@@ -520,11 +528,24 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							jsDocTags,
 							name: typeName,
 							tsNodes: [parentTsNode ?? tsNode],
-							isAsync: cleanResult.hasPromise
+							isAsync: cleanResult.hasPromise,
+							isFromPackage: isTypeFromPackage
 						};
+						//* Check if is parent object type
+						let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
+						if (
+							parentNode.kind === Kind.PARAM &&
+							(cl = parentNode.parent.parent.parent) &&
+							cl.parentsName === typeName
+						) {
+							parentNode.isParentObject = true;
+							ignoreReturnedTypes = true;
+						}
+						//* else
 						if (!ignoreReturnedTypes) {
 							//* Add reference for check
-							(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
+							if (!isTypeFromPackage)
+								(isInput ? INPUT_REFERENCES : OUTPUT_REFERENCES).set(typeName, parentTsNode ?? tsNode);
 							//* resolve generics
 							types.forEach(type => {
 								const typeName = typeChecker.typeToString(type);
@@ -560,7 +581,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 											jsDoc: [], //TODO get from original entity
 											jsDocTags: new Map(), //TODO get from original tag
 											name: typeName,
-											tsNodes: [parentTsNode ?? tsNode]// TODO get from original entity
+											tsNodes: [parentTsNode ?? tsNode],// TODO get from original entity
+											parentsName: undefined
 										};
 										targetMap.set(typeName, entity);
 										type.getProperties().forEach(s => {
@@ -619,7 +641,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						jsDocTags,
 						name: _getNodeName(tsNode),
 						tsNodes: [tsNode],
-						isAsync: false
+						isAsync: false,
+						isFromPackage: false
 					};
 					parentNode.type = type;
 					break;
@@ -653,6 +676,33 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							entityName,
 							parentNode: listNode
 						});
+					}
+					//* Add reference to parentNode
+					if (parentNode == null) { }
+					else if (
+						parentNode.kind === Kind.PARAM ||
+						parentNode.kind === Kind.LIST ||
+						parentNode.kind === Kind.FIELD
+					) {
+						parentNode.type = {
+							kind: Kind.REF,
+							isAsync: false,
+							isFromPackage: false,
+							isInput,
+							jsDoc,
+							jsDocTags,
+							name: entityName,
+							tsNodes: [tsNode]
+						};
+						let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
+						if (
+							parentNode.kind === Kind.PARAM &&
+							(cl = parentNode.parent.parent.parent) &&
+							cl.parentsName === entityName
+						) {
+							parentNode.isParentObject = true;
+							ignoreReturnedTypes = true;
+						}
 					}
 					break;
 				}
@@ -725,7 +775,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						isClass: false,
 						jsDoc,
 						jsDocTags: jsDocTags ?? new Map(),
-						tsNodes: [tsNode]
+						tsNodes: [tsNode],
+						parentsName: undefined
 					};
 					const ref: RefNode = {
 						kind: Kind.REF,
@@ -734,7 +785,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						jsDoc,
 						jsDocTags,
 						tsNodes: [tsNode],
-						isAsync: false
+						isAsync: false,
+						isFromPackage: false
 					};
 					parentNode.type = ref;
 					LITERAL_OBJECTS.push({ entity, isInput, ref });
@@ -954,14 +1006,17 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	/**
 	 * Check if a class is a helper class
 	 */
-	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration): { type: HelperClass, entities: string[], nodes: ImplementedEntity[] } {
+	function _getImplementedEntities(tsEntity: ts.ClassDeclaration | ts.InterfaceDeclaration) {
 		const entities: string[] = [];
 		const entityNodes: ImplementedEntity[] = [];
 		let resultType = HelperClass.ENTITY;
+		const strTypes: string[] = [];
 		tsEntity.heritageClauses?.forEach(close => {
 			close.types.forEach(typeNode => {
-				const type = typeChecker.getTypeFromTypeNode(typeNode);
+				const type = typeChecker.getTypeAtLocation(typeNode.expression);
 				const aliasedSym = type.aliasSymbol ?? type.symbol;
+				if (aliasedSym == null)
+					throw `Could not resolve alias "${_getNodeName(typeNode.expression)}" at: ${getNodePath(typeNode)}`;
 				const targetTypeNodeName = aliasedSym.name;
 				//* check if from
 				let cType: HelperClass;
@@ -970,10 +1025,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					cType = HelperClass.ENTITY;
 					const entityName = typeChecker.typeToString(type);
 					entities.push(entityName);
+					const cleanName = cleanType(typeChecker, type);
 					entityNodes.push({
 						name: entityName,
-						cleanName: cleanType(typeChecker, type).name
+						cleanName: cleanName.name
 					});
+					strTypes.push(...cleanName.strTypes);
 				} else {
 					switch (targetTypeNodeName) {
 						case 'ValidatorsOf':
@@ -987,13 +1044,32 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							const targetTypeNode = typeNode.typeArguments?.[0];
 							if (targetTypeNode == null)
 								throw `Missing type for "${targetTypeNodeName}" at: ${getNodePath(typeNode)}`;
-							const targetType = typeChecker.getTypeFromTypeNode(targetTypeNode);
-							const entityName = typeChecker.typeToString(targetType);
-							entities.push(entityName);
-							entityNodes.push({
-								name: entityName,
-								cleanName: cleanType(typeChecker, targetType).name
-							});
+							let targetTypeNodes: ts.TypeNode[];
+							if (ts.isTupleTypeNode(targetTypeNode)) {
+								targetTypeNodes = targetTypeNode.elements.map(n => {
+									if (ts.isNamedTupleMember(n)) {
+										n = n.type;
+									}
+									return n;
+								})
+							} else {
+								targetTypeNodes = [targetTypeNode];
+							}
+							targetTypeNodes.forEach(targetTypeNode => {
+								const targetType = typeChecker.getTypeFromTypeNode(targetTypeNode);
+								/** Check not root entity */
+								const notSelfEntity = (targetType.aliasSymbol ?? targetType.symbol)?.declarations?.[0] !== tsEntity;
+								if (notSelfEntity) {
+									const entityName = typeChecker.typeToString(targetType);
+									entities.push(entityName);
+									const cleanName = cleanType(typeChecker, targetType);
+									entityNodes.push({
+										name: entityName,
+										cleanName: cleanName.name
+									});
+									strTypes.push(...cleanName.strTypes);
+								}
+							})
 							switch (targetTypeNodeName) {
 								case 'ValidatorsOf': cType = HelperClass.VALIDATORS; break;
 								case 'ResolversOf': cType = HelperClass.RESOLVERS; break;
@@ -1010,10 +1086,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							cType = HelperClass.ENTITY;
 							const entityName = typeChecker.typeToString(type);
 							entities.push(entityName);
+							const cleanName = cleanType(typeChecker, type);
 							entityNodes.push({
 								name: entityName,
-								cleanName: cleanType(typeChecker, type).name
+								cleanName: cleanName.name
 							});
+							strTypes.push(...cleanName.strTypes);
 						}
 					}
 				}
@@ -1023,7 +1101,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				resultType = cType;
 			});
 		});
-		return { type: resultType, entities, nodes: entityNodes };
+		return {
+			type: resultType,
+			entities,
+			nodes: entityNodes,
+			strTypes,
+			strType: strTypes.sort((a, b) => a.localeCompare(b)).join('|')
+		};
 	}
 
 	/** Add union or scalar to entities */

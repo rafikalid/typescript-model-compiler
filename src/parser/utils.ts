@@ -50,15 +50,16 @@ export function cleanType(typeChecker: ts.TypeChecker, type: ts.Type) {
 		}
 	}
 	
-	const txt= result
+	const strTypes= result
 		.map(t=> typeChecker.typeToString(t))
 		.filter((t, i, arr)=> i === arr.indexOf(t))
-		.sort((a, b)=> a.localeCompare(b))
-		.join('|');
+		.sort((a, b)=> a.localeCompare(b));
+	const txt= strTypes.join('|');
 
 	return {
 		name: txt,
 		types: result,
+		strTypes,
 		hasPromise
 	}
 }

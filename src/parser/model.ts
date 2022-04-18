@@ -49,6 +49,8 @@ export interface ObjectNode extends _NamedNode {
 	annotations: Annotation[]
 	/** Is target a class */
 	isClass: boolean;
+	/** Use for compatibility */
+	parentsName: undefined
 }
 
 
@@ -69,6 +71,8 @@ export interface FieldNode extends _NamedNode {
 	type: FieldType;
 	/** Method: resolver or validator */
 	method?: MethodNode
+	/** Parent node */
+	parent: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode
 }
 
 /** Method */
@@ -86,6 +90,7 @@ export interface MethodNode {
 	tsNode: ts.Node;
 	/** ref */
 	type: RefNode
+	parent: FieldNode
 }
 
 /** Method params */
@@ -95,6 +100,10 @@ export interface ParamNode extends _NamedNode {
 	required: boolean;
 	/** Type */
 	type: FieldType;
+	/** Parent node */
+	parent: MethodNode
+	/** If this this is the type of parent object */
+	isParentObject: boolean
 }
 
 /** List */
@@ -128,6 +137,8 @@ export interface Method {
 export interface RefNode extends _NamedNode {
 	kind: Kind.REF
 	isAsync: boolean
+	/** If this reference to a type in tt-model or it's sub-package */
+	isFromPackage: boolean
 }
 
 /** Static value */
@@ -166,6 +177,8 @@ export interface ValidatorClassNode extends _NamedNode {
 	fields: Map<string, FieldNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
+	/** Parents name */
+	parentsName: string
 }
 /**
  * Resolver class
