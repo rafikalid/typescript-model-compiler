@@ -214,5 +214,5 @@ export interface DefaultScalarNode extends _NamedNode {
 /** Js Doc Tag */
 export interface JsDocTag {
 	name: string
-	args: string[]
+	args: string | undefined
 }

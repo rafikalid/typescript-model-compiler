@@ -73,7 +73,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					// Save tag
 					const jsDocTag: JsDocTag = {
 						name: tag.name,
-						args: compiler._parseJsDocTagArgs(tagText)
+						args: tagText //compiler._parseJsDocTagArgs(tagText)
 					}
 					const tags = jsDocTags.get(tag.name);
 					if (tags == null) jsDocTags.set(tag.name, [jsDocTag]);

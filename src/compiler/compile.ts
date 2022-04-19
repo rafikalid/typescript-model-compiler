@@ -10,6 +10,7 @@ import { parseTsConfig } from "./tsconfig-parser";
 import { resolveFilePattern } from "@utils/file-pattern";
 import { parseSchema } from "@parser/parse";
 import { printTree } from "@utils/console-print";
+import { format } from "@src/format/format";
 
 /** Compiler */
 export class Compiler {
@@ -23,7 +24,10 @@ export class Compiler {
 	#relatedFiles: Map<string, string[]> = new Map();
 
 	/** Current program */
-	#program?: ts.Program;
+	#program!: ts.Program;
+
+	/** Call expression parser cache */
+	_cacheCallExpression: Map<ts.CallExpression, (...args: any[]) => any> = new Map();
 
 	/**
 	 * Init compiler
@@ -66,9 +70,11 @@ export class Compiler {
 		//* Parse patterns
 		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
 			const parseOptions = mapPatterns[i];
-			info(`Parsing >> ${parseOptions.methodText}`);
-			const parsed = this._parse(program, parseOptions.files, parseOptions.contextEntities);
+			info(`>> Parsing ${parseOptions.methodText}`);
+			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities);
 			console.log(printTree(parsed, '\t'));
+			info('Format >>');
+			this._format(parsed);
 		}
 
 		throw 'END';
@@ -193,12 +199,18 @@ export class Compiler {
 
 	/**
 	 * Parse files
-	 * @param { ts.Program } program
 	 * @param { string[] } files				- Path to files to parse
 	 * @param { string[] } contextEntities		- Additional entities added by user
 	 */
-	_parse(program: ts.Program, files: string[], contextEntities: string[]) {
-		return parseSchema(this, program, files, contextEntities);
+	_parse(files: string[], contextEntities: string[]) {
+		return parseSchema(this, this.#program, files, contextEntities);
+	}
+
+	/**
+	 * Format parsed entities
+	 */
+	_format(data: ReturnType<typeof parseSchema>) {
+		return format(this, this.#compilerOptions, data);
 	}
 
 	/**
