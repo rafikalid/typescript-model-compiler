@@ -11,9 +11,15 @@ import { resolveFilePattern } from "@utils/file-pattern";
 import { parseSchema } from "@parser/parse";
 import { printTree } from "@utils/console-print";
 import { format } from "@src/format/format";
+import { resolve as resolvePath } from 'path';
+
 
 /** Compiler */
 export class Compiler {
+	/** Default libs */
+	#libs = [
+		resolvePath('node_modules/tt-model/src/interfaces/scalars-default.ts')
+	];
 	/** Typescript Compiler Options */
 	#compilerOptions: ts.CompilerOptions
 
@@ -29,6 +35,9 @@ export class Compiler {
 	/** Call expression parser cache */
 	_cacheCallExpression: Map<ts.CallExpression, (...args: any[]) => any> = new Map();
 
+	/** Store file contents */
+	#files: Map<string, string | undefined> = new Map();
+
 	/**
 	 * Init compiler
 	 * @param {ts.CompilerOptions | string}	compilerOptions	- Parsed typescript config or path to that file
@@ -39,6 +48,11 @@ export class Compiler {
 		//* Parse ts config
 		if (typeof compilerOptions === 'string') compilerOptions = parseTsConfig(compilerOptions);
 		this.#compilerOptions = compilerOptions;
+		//* Add tt-model default scalars
+		const mapFiles = this.#files;
+		this.#libs.forEach(file => {
+			mapFiles.set(file, undefined);
+		});
 	}
 
 	/**
@@ -56,8 +70,10 @@ export class Compiler {
 	): string[] {
 		//* Load file data & paths
 		info('>> Load Content');
-		files = this.adjustFiles(files);
-		const filePaths: Set<string> = new Set(files.keys());
+		const updatedFiles = Array.isArray(files) ? files : Array.from(files.keys());
+		this._loadFiles(files);
+		files = this.#files;
+		// const filePaths: Set<string> = new Set(files.keys());
 
 		//* Program
 		info('>> Create Program');
@@ -65,7 +81,7 @@ export class Compiler {
 
 		//* Load target files from patterns
 		info(`>> Load Patterns and files`);
-		const mapPatterns = this.resolvePatterns(program, filePaths.values());
+		const mapPatterns = this.resolvePatterns(program, updatedFiles);
 
 		//* Parse patterns
 		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
@@ -96,7 +112,7 @@ export class Compiler {
 	}
 
 	/** Resolve patterns by scan */
-	resolvePatterns(program: ts.Program, files: IterableIterator<string>): ResolvedPattern[] {
+	resolvePatterns(program: ts.Program, files: string[]): ResolvedPattern[] {
 		return resolvePatterns(program, files, this._resolvePatternsOptions());
 	}
 
@@ -135,6 +151,9 @@ export class Compiler {
 						const typeName = (type.aliasSymbol ?? type.symbol).name;
 						contextEntities.push(typeName);
 					}
+					//* Resolve files
+					const files = resolveFilePattern(srcFile.fileName, pattern);
+					files.push(...this.#libs);
 					//* Return
 					return {
 						filePath: srcFile.fileName,
@@ -143,7 +162,7 @@ export class Compiler {
 						methodText: node.getText(),
 						node,
 						pattern,
-						files: resolveFilePattern(srcFile.fileName, pattern),
+						files,
 						schemaEntityName: typeArguments[0].getText(),
 						contextEntityName: typeArguments[1]?.getText(),
 						// TODO resolve annotation class
@@ -155,16 +174,19 @@ export class Compiler {
 	}
 
 	/** Adjust files and add dependents */
-	adjustFiles(files: string[] | Map<string, string | undefined>): Map<string, string | undefined> {
+	_loadFiles(files: string[] | Map<string, string | undefined>): void {
 		// const filesPath: Set<string> = new Set(Array.isArray(files) ? files : files.keys());
+		const target = this.#files;
 		if (Array.isArray(files)) {
-			const mp: Map<string, string | undefined> = new Map();
-			for (let i = 0, len = files.length; i < len; ++i) mp.set(files[i], undefined);
-			files = mp;
+			for (let i = 0, len = files.length; i < len; ++i)
+				target.set(files[i], undefined);
+		} else {
+			files.forEach(function (v, k) {
+				target.set(k, v);
+			});
 		}
 		//* Add dependent files
 		// TODO load from glob and dependents
-		return files;
 	}
 
 	/** print files */

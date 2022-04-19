@@ -2,9 +2,8 @@ import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, DefaultScalarNode, EnumMemberNode, FieldType, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
-import { defaultScalars } from 'tt-model';
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
 
@@ -906,23 +905,23 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			}
 		}
 	});
-	//* Add default scalars
-	Object.keys(defaultScalars).forEach(scalarName => {
-		// Create entity
-		const entity: DefaultScalarNode = {
-			kind: Kind.DEFAULT_SCALAR,
-			name: scalarName,
-			class: defaultScalars[scalarName as keyof typeof defaultScalars],
-			isInput: false,
-			jsDoc: [],
-			jsDocTags: undefined,
-			tsNodes: []
-		}
-		// Add to input entities
-		if (!INPUT_ENTITIES.has(scalarName)) INPUT_ENTITIES.set(scalarName, entity);
-		// Add to output entities
-		if (!OUTPUT_ENTITIES.has(scalarName)) OUTPUT_ENTITIES.set(scalarName, entity);
-	});
+	// //* Add default scalars
+	// Object.keys(defaultScalars).forEach(scalarName => {
+	// 	// Create entity
+	// 	const entity: DefaultScalarNode = {
+	// 		kind: Kind.DEFAULT_SCALAR,
+	// 		name: scalarName,
+	// 		class: defaultScalars[scalarName as keyof typeof defaultScalars],
+	// 		isInput: false,
+	// 		jsDoc: [],
+	// 		jsDocTags: undefined,
+	// 		tsNodes: []
+	// 	}
+	// 	// Add to input entities
+	// 	if (!INPUT_ENTITIES.has(scalarName)) INPUT_ENTITIES.set(scalarName, entity);
+	// 	// Add to output entities
+	// 	if (!OUTPUT_ENTITIES.has(scalarName)) OUTPUT_ENTITIES.set(scalarName, entity);
+	// });
 	//* Check for missing entities
 	INPUT_REFERENCES.forEach(_checkIgnoredEntities);
 	OUTPUT_REFERENCES.forEach(_checkIgnoredEntities);

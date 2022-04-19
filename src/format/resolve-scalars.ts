@@ -1,6 +1,5 @@
 import { Kind } from "@parser/kind";
-import { MethodNode, RootNode, ScalarNode } from "@parser/model";
-import { parseSchema } from "@parser/parse";
+import { RootNode, ScalarNode } from "@parser/model";
 import { getNodePath } from "@utils/node-path";
 import { Scalar } from "tt-model";
 import ts from "typescript";

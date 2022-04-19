@@ -7,7 +7,7 @@ import ts from "typescript";
  */
 export function resolvePatterns(
 	program: ts.Program,
-	files: IterableIterator<string>,
+	files: string[],
 	libs: Record<string, MethodDesc>
 ): ResolvedPattern[] {
 	const result: ResolvedPattern[] = [];
@@ -20,14 +20,11 @@ export function resolvePatterns(
 		}
 	}
 	//* iterate over all files
-	let done: boolean | undefined;
 	const Queue: ts.Node[] = [];
-	do {
+	for (let fi = 0, fLen = files.length; fi < fLen; ++fi) {
 		//* Load data
-		const next = files.next();
-		done = next.done;
-		if (next.value == null) continue;
-		const srcFile = program.getSourceFile(next.value);
+		const file = files[fi];
+		const srcFile = program.getSourceFile(file);
 		if (srcFile == null) continue;
 		//* Check if file include target lib
 		let libFound = false;
@@ -83,7 +80,7 @@ export function resolvePatterns(
 				Queue.push(...node.getChildren());
 			}
 		}
-	} while (!done);
+	}
 	return result;
 }
 
