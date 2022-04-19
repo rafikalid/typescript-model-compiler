@@ -14,13 +14,22 @@ export function _resolveScalars(compiler: Compiler, compilerOptions: ts.Compiler
 	const scalarsAssert = new Map<string, Scalar<any>["assertJsDocParser"]>();
 	const scalarsDefault = new Map<string, Scalar<any>["defaultJsDocParser"]>();
 	const cacheCall = compiler._cacheCallExpression;
+	const errors: string[] = [];
 	data.forEach(function (entity, scalarName) {
-		if (entity == null) { }
-		else if (entity.kind === Kind.SCALAR) {
-			_parseHandler(entity, scalarName, 'assertJsDocParser', scalarsAssert);
-			_parseHandler(entity, scalarName, 'defaultJsDocParser', scalarsDefault);
+		try {
+			if (entity == null) { }
+			else if (entity.kind === Kind.SCALAR) {
+				_parseHandler(entity, scalarName, 'assertJsDocParser', scalarsAssert);
+				_parseHandler(entity, scalarName, 'defaultJsDocParser', scalarsDefault);
+			}
+		} catch (err) {
+			if (typeof err === 'string') errors.push(err);
+			else throw err;
 		}
 	});
+	//* Throw errors if found
+	if (errors.length) throw new Error(`Parsing Errors: \n\t- ${errors.join('\n\t- ')}`);
+	//* Return
 	return {
 		assert: scalarsAssert,
 		default: scalarsDefault
@@ -30,16 +39,22 @@ export function _resolveScalars(compiler: Compiler, compilerOptions: ts.Compiler
 		const callEl = scalarNode.fields.get(key);
 		if (callEl?.method == null) return;
 		const tsNode = callEl.method.tsNode;
-		if (!ts.isCallExpression(tsNode))
-			throw `Expected call expression for "${scalarName}.${key}" at: ${getNodePath(tsNode)}`;
-		let fx = cacheCall.get(tsNode);
-		if (fx == null) {
-			fx = _resolveHandler(tsNode, compilerOptions);
-			if (fx == null)
-				throw `Could not compile handler for "${scalarName}.${key}" at: ${getNodePath(tsNode)}`;
-			cacheCall.set(tsNode, fx);
+		if (
+			ts.isMethodDeclaration(tsNode) ||
+			ts.isFunctionDeclaration(tsNode) ||
+			ts.isCallExpression(tsNode)
+		) {
+			let fx = cacheCall.get(tsNode);
+			if (fx == null) {
+				fx = _resolveHandler(tsNode, compilerOptions);
+				if (fx == null)
+					throw `Could not compile handler for "${scalarName}.${key}" at: ${getNodePath(tsNode)}`;
+				cacheCall.set(tsNode, fx);
+			}
+			targetMap.set(scalarName, fx);
+		} else {
+			throw `Expected call expression for "${scalarName}.${key}". Got "${ts.SyntaxKind[tsNode.kind]}" at: ${getNodePath(tsNode)}`;
 		}
-		targetMap.set(scalarName, fx);
 	}
 }
 

@@ -32,7 +32,7 @@ export class Compiler {
 	#program!: ts.Program;
 
 	/** Call expression parser cache */
-	_cacheCallExpression: Map<ts.CallExpression, (...args: any[]) => any> = new Map();
+	_cacheCallExpression: Map<ts.CallExpression | ts.MethodDeclaration | ts.FunctionDeclaration, (...args: any[]) => any> = new Map();
 
 	/** Store file contents */
 	#files: Map<string, string | undefined> = new Map();

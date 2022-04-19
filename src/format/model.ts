@@ -3,7 +3,7 @@ import { MethodNode } from "@parser/model";
 import ts from "typescript";
 
 /** Root nodes */
-export type FormattedRootNode = FormattedObject | FormattedScalar | FormattedEnum | FormattedList;
+export type FormattedRootNode = FormattedObject | FormattedScalar | FormattedEnum | FormattedList | FormattedUnion;
 
 /** @private formatted node */
 interface _FormattedNode {
@@ -38,15 +38,83 @@ export interface FormattedScalar extends _FormattedNode {
 export interface FormattedField extends _FormattedNode {
 	kind: Kind.FIELD
 	required: boolean
-	method: MethodNode | undefined
+	method: FormattedMethod | undefined,
+	className: string
+	/** Field index inside it's own class */
+	idx: number
+	type: FormattedRef | FormattedStaticValue
 }
 
 /** Formatted Enum */
 export interface FormattedEnum extends _FormattedNode {
 	kind: Kind.ENUM
+	members: FormattedEnumMember[]
 }
 
 /** Formatted List */
 export interface FormattedList extends _FormattedNode {
 	kind: Kind.LIST
+	type: FormattedRef | FormattedStaticValue
+}
+
+/** Enum member */
+export interface FormattedEnumMember {
+	kind: Kind.ENUM_MEMBER;
+	name: string
+	jsDoc: string | undefined;
+	value: string | number;
+}
+
+/** Reference */
+export interface FormattedRef {
+	kind: Kind.REF
+	name: string
+	isAsync: boolean
+}
+
+/** Static value */
+export interface FormattedStaticValue {
+	kind: Kind.STATIC_VALUE
+	value: string | number | boolean
+}
+
+/** Union */
+export interface FormattedUnion extends _FormattedNode {
+	kind: Kind.UNION
+	/** Remember tsNodes, gql do not support union as input */
+	tsNodes: ts.Node[]
+	/** Resolver */
+	resolve: FormattedField
+}
+
+/** Formatted method */
+export interface FormattedMethod {
+	kind: Kind.METHOD
+	/** Class name */
+	class: string
+	/** method name */
+	name: string
+	/** File path */
+	path: string
+	/** Params */
+	params: FormattedParamNode[]
+	/** is prototype or static method */
+	isStatic: boolean;
+	/** Is async */
+	isAsync: boolean
+	/** ref */
+	type: FormattedRef | FormattedStaticValue
+}
+
+/** Method params */
+export interface FormattedParamNode {
+	kind: Kind.PARAM
+	/** name */
+	name: string
+	/** If param is required */
+	required: boolean;
+	/** Type */
+	type: FormattedRef | FormattedStaticValue;
+	/** If this this is the type of parent object */
+	isParentObject: boolean
 }

@@ -144,7 +144,7 @@ export interface RefNode extends _NamedNode {
 /** Static value */
 export interface StaticValueNode extends _NamedNode {
 	kind: Kind.STATIC_VALUE
-	value: string | number
+	value: string | number | boolean
 	isAsync: boolean
 }
 
