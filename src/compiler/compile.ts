@@ -2,7 +2,6 @@ import { PACKAGE_NAME } from "@src/config";
 import { info } from "@utils/log";
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
-import { compileFiles } from "./compile-files";
 import { ScanFile, TargetExtension } from "./interface";
 import { _createProgram } from "./program";
 import { ResolvedPattern, resolvePatterns } from "./resolve-patterns";
@@ -17,7 +16,7 @@ import { resolve as resolvePath } from 'path';
 /** Compiler */
 export class Compiler {
 	/** Default libs */
-	#libs = [
+	_libs = [
 		resolvePath('node_modules/tt-model/src/interfaces/scalars-default.ts')
 	];
 	/** Typescript Compiler Options */
@@ -50,7 +49,7 @@ export class Compiler {
 		this.#compilerOptions = compilerOptions;
 		//* Add tt-model default scalars
 		const mapFiles = this.#files;
-		this.#libs.forEach(file => {
+		this._libs.forEach(file => {
 			mapFiles.set(file, undefined);
 		});
 	}
@@ -88,16 +87,12 @@ export class Compiler {
 			const parseOptions = mapPatterns[i];
 			info(`>> Parsing ${parseOptions.methodText}`);
 			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities);
-			console.log(printTree(parsed, '\t'));
 			info('Format >>');
-			this._format(parsed);
+			const formatted = this._format(parsed);
+			console.log(printTree(formatted, '\t'));
 		}
 
 		throw 'END';
-
-		// //* Compile files
-		// info('>> Compiling');
-		// const compiled = compileFiles(program, files);
 
 		// //* Print files
 		// info('>> Print files');
@@ -153,7 +148,7 @@ export class Compiler {
 					}
 					//* Resolve files
 					const files = resolveFilePattern(srcFile.fileName, pattern);
-					files.push(...this.#libs);
+					files.push(...this._libs);
 					//* Return
 					return {
 						filePath: srcFile.fileName,

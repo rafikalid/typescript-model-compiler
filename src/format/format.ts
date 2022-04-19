@@ -18,87 +18,87 @@ export function format(compiler: Compiler, compilerOptions: ts.CompilerOptions, 
 
 /** Format input entities */
 function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: Map<string, RootNode | undefined>, isInput: boolean) {
-	// //* Resolver scalar parsers
-	// const scalars = _resolveScalars(compiler, compilerOptions, data);
-	// const result: Map<string, FormattedRootNode> = new Map();
-	// //* format entities
-	// data.forEach(function (entity) {
-	// 	if (entity == null) return;
-	// 	const entityName = entity.name;
-	// 	if (result.has(entityName)) return; // Entity mapped twice
-	// 	// Compile jsDoc
-	// 	const jsDoc = _compileJsDoc(entity.jsDoc);
-	// 	let formattedEntity: FormattedRootNode;
-	// 	// Before and after
-	// 	const codeBefore: ts.Statement[] = [];
-	// 	const codeAfter: ts.Statement[] = [];
-	// 	// Add formatted entity
-	// 	switch (entity.kind) {
-	// 		case Kind.SCALAR:
-	// 			formattedEntity = {
-	// 				kind: Kind.SCALAR,
-	// 				name: entityName,
-	// 				jsDoc,
-	// 				before: codeBefore,
-	// 				after: codeAfter,
-	// 				// Fields
-	// 				parse: _formatField(entity.fields.get('parse')),
-	// 				serialize: _formatField(entity.fields.get('serialize')),
-	// 				fromDB: _formatField(entity.fields.get('fromDB')),
-	// 				toDB: _formatField(entity.fields.get('toDB')),
-	// 				default: _formatField(entity.fields.get('default')),
-	// 				defaultOutput: _formatField(entity.fields.get('defaultOutput')),
-	// 				mock: _formatField(entity.fields.get('mock'))
-	// 			};
-	// 			break;
-	// 		case Kind.ENUM:
-	// 			formattedEntity = {
-	// 				kind: Kind.ENUM,
-	// 				name: entityName,
-	// 				jsDoc,
-	// 				before: codeBefore,
-	// 				after: codeAfter
-	// 			};
-	// 			break;
-	// 		case Kind.LIST:
-	// 			formattedEntity = {
-	// 				kind: Kind.LIST,
-	// 				name: entityName,
-	// 				jsDoc,
-	// 				before: codeBefore,
-	// 				after: codeAfter
-	// 			};
-	// 			break;
-	// 		case Kind.OBJECT:
-	// 			formattedEntity = {
-	// 				kind: Kind.OBJECT,
-	// 				name: entityName,
-	// 				jsDoc,
-	// 				before: codeBefore,
-	// 				after: codeAfter
-	// 			};
-	// 			break;
-	// 		case Kind.UNION:
-	// 			// formattedEntity = {
-	// 			// 	kind: Kind.UNION,
-	// 			// 	name: entityName,
-	// 			// 	jsDoc,
-	// 			// 	before: codeBefore,
-	// 			// 	after: codeAfter
-	// 			// };
-	// 			break;
-	// 		default: {
-	// 			let n: never = entity;
-	// 		}
-	// 	}
-	// 	result.set(entityName, formattedEntity);
-	// });
+	//* Resolver scalar parsers
+	const scalars = _resolveScalars(compiler, compilerOptions, data);
+	const result: Map<string, FormattedRootNode> = new Map();
+	//* format entities
+	data.forEach(function (entity) {
+		if (entity == null) return;
+		const entityName = entity.name;
+		if (result.has(entityName)) return; // Entity mapped twice
+		// Compile jsDoc
+		const jsDoc = _compileJsDoc(entity.jsDoc);
+		let formattedEntity: FormattedRootNode;
+		// Before and after
+		const codeBefore: ts.Statement[] = [];
+		const codeAfter: ts.Statement[] = [];
+		// Add formatted entity
+		switch (entity.kind) {
+			case Kind.SCALAR:
+				formattedEntity = {
+					kind: Kind.SCALAR,
+					name: entityName,
+					jsDoc,
+					before: codeBefore,
+					after: codeAfter,
+					// Fields
+					parse: _formatField(entity.fields.get('parse')),
+					serialize: _formatField(entity.fields.get('serialize')),
+					fromDB: _formatField(entity.fields.get('fromDB')),
+					toDB: _formatField(entity.fields.get('toDB')),
+					default: _formatField(entity.fields.get('default')),
+					defaultOutput: _formatField(entity.fields.get('defaultOutput')),
+					mock: _formatField(entity.fields.get('mock'))
+				};
+				break;
+			case Kind.ENUM:
+				formattedEntity = {
+					kind: Kind.ENUM,
+					name: entityName,
+					jsDoc,
+					before: codeBefore,
+					after: codeAfter
+				};
+				break;
+			case Kind.LIST:
+				formattedEntity = {
+					kind: Kind.LIST,
+					name: entityName,
+					jsDoc,
+					before: codeBefore,
+					after: codeAfter
+				};
+				break;
+			case Kind.OBJECT:
+				formattedEntity = {
+					kind: Kind.OBJECT,
+					name: entityName,
+					jsDoc,
+					before: codeBefore,
+					after: codeAfter
+				};
+				break;
+			case Kind.UNION:
+				// formattedEntity = {
+				// 	kind: Kind.UNION,
+				// 	name: entityName,
+				// 	jsDoc,
+				// 	before: codeBefore,
+				// 	after: codeAfter
+				// };
+				break;
+			default: {
+				let n: never = entity;
+			}
+		}
+		result.set(entityName, formattedEntity);
+	});
 
-	// /** Format fields */
-	// function _formatField(field: FieldNode | undefined): FormattedField | undefined {
-	// 	if (field == null) return;
-	// 	// TODO add field formatter
-	// }
+	/** Format fields */
+	function _formatField(field: FieldNode | undefined): FormattedField | undefined {
+		if (field == null) return;
+		// TODO add field formatter
+	}
 }
 
 

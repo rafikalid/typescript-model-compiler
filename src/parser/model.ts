@@ -6,11 +6,11 @@ import { ImplementedEntity } from "./parse";
 
 /** Nodes */
 export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
-	ListNode | ScalarNode | DefaultScalarNode | RefNode |
+	ListNode | ScalarNode | RefNode |
 	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode | UnionNode | ScalarNode;
 
 /** Root nodes */
-export type RootNode = ObjectNode | ListNode | ScalarNode | DefaultScalarNode | UnionNode | EnumNode;
+export type RootNode = ObjectNode | ListNode | ScalarNode | UnionNode | EnumNode;
 
 /** Field possible types (string means reference) */
 export type FieldType = RefNode | StaticValueNode | undefined;
@@ -203,12 +203,6 @@ export interface Annotation {
 	tsNode: ts.Node
 	/** Annotation Handler */
 	handler?: ts.CallExpression | ts.FunctionDeclaration | ts.MethodDeclaration
-}
-
-/** Default scalar node */
-export interface DefaultScalarNode extends _NamedNode {
-	kind: Kind.DEFAULT_SCALAR
-	class: new () => Scalar<any>
 }
 
 /** Js Doc Tag */
