@@ -89,7 +89,7 @@ export class Compiler {
 			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities);
 			info('Format >>');
 			const formatted = this._format(parsed);
-			console.log(printTree(formatted, '\t'));
+			console.log(printTree(parsed, '\t'));
 		}
 
 		throw 'END';

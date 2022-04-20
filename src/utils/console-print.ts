@@ -27,7 +27,7 @@ export function printTree(root: any, tab: string) {
 			return r;
 		} else if (v instanceof Set) return Array.from(v);
 		else if (k === 'tsNodes') return (v as any[]).map(e => getNodePath(e))
-		else if (k === 'tsNode' || k === 'handler') return getNodePath(v);
+		else if (k === 'tsNode' || k === 'handler' || k === 'targetTsNode') return getNodePath(v);
 		else if (entities.has(v)) return `< CIRCULAR! >`
 		// else if (
 		// 	// k === 'node' &&

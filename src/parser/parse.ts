@@ -3,7 +3,7 @@ import { assertValidSDL } from "graphql/validation/validate";
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldType, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, UnionNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValue, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
@@ -87,12 +87,14 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				const decorator = decorators[j];
 				const expr = decorator.expression;
 				let identifier: ts.Expression;
-				let args: string[] = [];
+				let args: StaticValueResponse[] = [];
 				if (ts.isCallExpression(expr)) {
 					identifier = expr.expression;
+					console.log('--ANNOTATION->', _getNodeName(identifier));
 					expr.arguments?.forEach(arg => {
-						args.push(arg.getText());
+						args.push(_getStaticValue(arg));
 					});
+					console.log("\t", args);
 				} else {
 					identifier = expr;
 				}
@@ -115,7 +117,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				/** Is from tt-model or its sub-package */
 				const isFromPackage = compiler._isFromPackage(decoVar);
 				//* Add to jsDoc
-				jsDoc.push(`@${annotationName} ${args.map(a => a.indexOf(' ') == -1 ? a : _escapeStr(a)).join(' ')}`);
+				jsDoc.push(`@${annotationName} ${args.map(a => a.name).join(' ')}`);
 
 				//* Check for special annotations
 				if (isFromPackage) {
@@ -1179,13 +1181,43 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 		else
 			targetMap.set(name, helper);
 	}
+	/** Get static value */
+	function _getStaticValue(arg: ts.Expression): StaticValueResponse {
+		if (ts.isLiteralTypeNode(arg)) arg = arg.literal;
+		let value: StaticValue;
+		let targetNode: ts.Node | undefined;
+		switch (arg.kind) {
+			case ts.SyntaxKind.TrueKeyword: value = true; break;
+			case ts.SyntaxKind.FalseKeyword: value = false; break;
+			case ts.SyntaxKind.StringLiteral: value = (arg as ts.StringLiteral).text; break;
+			case ts.SyntaxKind.NumericLiteral: value = Number((arg as ts.NumericLiteral).text); break;
+			default: {
+				const sym = typeChecker.getSymbolAtLocation(arg);
+				targetNode = sym?.declarations?.[0];
+				switch (targetNode?.kind) {
+					case ts.SyntaxKind.EnumMember:
+					case ts.SyntaxKind.PropertyAccessExpression:
+					case ts.SyntaxKind.ElementAccessExpression:
+						value = typeChecker.getConstantValue(targetNode as ts.EnumMember);
+						break;
+					case ts.SyntaxKind.TrueKeyword: value = true; break;
+					case ts.SyntaxKind.FalseKeyword: value = false; break;
+					case ts.SyntaxKind.StringLiteral: value = (arg as ts.StringLiteral).text; break;
+					case ts.SyntaxKind.NumericLiteral: value = Number((arg as ts.NumericLiteral).text); break;
+				}
+			}
+		}
+		return {
+			name: arg.getText(),
+			nativeName: targetNode && _getFullQualifiedNodeName(targetNode),
+			value,
+			tsNode: arg,
+			targetTsNode: targetNode,// targetNode
+		}
+
+	}
 }
 
-export interface ImplementedEntity {
-	name: string,
-	/** used for indexing */
-	cleanName: string
-}
 
 /**
  * Queue
@@ -1246,3 +1278,4 @@ export enum HelperClass {
 	SCALAR,
 	UNION
 }
+

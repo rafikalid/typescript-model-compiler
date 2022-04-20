@@ -1,7 +1,5 @@
 import { Kind } from "./kind";
 import ts from "typescript";
-import { Scalar } from "tt-model";
-import { ImplementedEntity } from "./parse";
 
 
 /** Nodes */
@@ -198,7 +196,7 @@ export interface Annotation {
 	/** If is from tt-Model or sub-package */
 	isFromPackage: boolean
 	/** Annotation argument */
-	params: string[]
+	params: StaticValueResponse[]
 	/** Target tsNode */
 	tsNode: ts.Node
 	/** Annotation Handler */
@@ -215,4 +213,28 @@ export interface JsDocTag {
 export interface AnyNode {
 	kind: Kind.ANY
 	isAsync: false
+}
+
+/** Static values */
+export type StaticValue = string | number | boolean | undefined | StaticValue[];
+
+/** Static value response */
+export interface StaticValueResponse {
+	/** Current name */
+	name: string
+	/** Original name */
+	nativeName: string | undefined
+	/** Static value */
+	value: StaticValue
+	/** Ts node */
+	tsNode: ts.Node
+	/** Target ts node */
+	targetTsNode: ts.Node | undefined
+}
+
+
+export interface ImplementedEntity {
+	name: string,
+	/** used for indexing */
+	cleanName: string
 }
