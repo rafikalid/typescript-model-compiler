@@ -156,6 +156,8 @@ export interface EnumNode extends _NamedNode {
 export interface EnumMemberNode extends _NamedNode {
 	kind: Kind.ENUM_MEMBER;
 	value: string | number;
+	/** Full qualified name */
+	fullName: string
 }
 
 /** Union */

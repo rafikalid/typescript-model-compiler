@@ -24,6 +24,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	const OUTPUT_ENTITIES: Map<string, RootNode> = new Map();
 	const HELPER_CLASSES: (ResolverClassNode | ValidatorClassNode | ScalarNode | UnionNode)[] = [];
 	const LITERAL_OBJECTS: LiteralObject[] = [];
+	/** Save all enum values */
+	const ENUM_MEMBERS: Map<string, number | string> = new Map();
 	/** Save reference for check */
 	const INPUT_REFERENCES: Map<string, ts.Node> = new Map();
 	const OUTPUT_REFERENCES: Map<string, ts.Node> = new Map();
@@ -764,15 +766,19 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (parentNode == null || parentNode.kind != Kind.ENUM)
 						throw `Unexpected ENUM MEMBER "${entityName}" at: ${getNodePath(tsNode)}`;
 					const enumMemberNode = tsNode as ts.EnumMember;
+					const fullName = _getFullQualifiedNodeName(tsNode);
+					const value = typeChecker.getConstantValue(enumMemberNode)!
 					let enumMember: EnumMemberNode = {
 						kind: Kind.ENUM_MEMBER,
 						name: enumMemberNode.name.getText(),
-						value: typeChecker.getConstantValue(enumMemberNode)!,
+						fullName,
+						value,
 						jsDoc: jsDoc,
 						isInput,
 						jsDocTags,
 						tsNodes: [tsNode]
 					};
+					ENUM_MEMBERS.set(fullName, value);
 					parentNode.members.push(enumMember);
 					break;
 				}
@@ -991,7 +997,9 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	//* Return
 	return {
 		input: INPUT_ENTITIES,
-		output: OUTPUT_ENTITIES
+		output: OUTPUT_ENTITIES,
+		/** Enum values */
+		enums: ENUM_MEMBERS
 		// HELPER_CLASSES
 	}
 
