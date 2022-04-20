@@ -1,4 +1,5 @@
 import { getNodePath } from "@utils/node-path";
+import { assertValidSDL } from "graphql/validation/validate";
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
@@ -41,12 +42,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 	//* Iterate over all nodes
 	const errors: string[] = [];
 	rootLoop: for (let Qi = 0; Qi < Q.length; ++Qi) {
+		//* Get next item
+		const QItem = Q[Qi];
+		const { tsNode, parentNode, isInput, isImplementation, entityName, parentTsNode } = QItem;
+		const tsNodeType = QItem.tsNodeType ?? typeChecker.getTypeAtLocation(tsNode);
+		const tsNodeSymbol = QItem.tsNodeSymbol ?? tsNodeType.symbol;
 		try {
-			//* Get next item
-			const QItem = Q[Qi];
-			const { tsNode, parentNode, isInput, isImplementation, entityName, parentTsNode } = QItem;
-			const tsNodeType = QItem.tsNodeType ?? typeChecker.getTypeAtLocation(tsNode);
-			const tsNodeSymbol = QItem.tsNodeSymbol ?? tsNodeType.symbol;
 			/** Do not parse return values and params */
 			let ignoreReturnedTypes = QItem.ignoreReturnedTypes;
 			//* Parse jsDoc
@@ -424,18 +425,9 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							params: [],
 							tsNode: tsNode,
 							parent: field,
-							type: {
-								kind: Kind.REF,
-								isAsync: cleanedType.hasPromise,
-								isInput,
-								jsDoc,
-								jsDocTags,
-								name: cleanedType.name,
-								tsNodes: [tsNode],
-								isFromPackage: false
-							}
+							type: undefined
 						};
-						// Resolve params
+						//* Resolve params
 						propSignature!.parameters?.forEach(param => {
 							const d = param.declarations?.[0];
 							if (d == null)
@@ -448,6 +440,17 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								parentNode: method,
 								ignoreReturnedTypes
 							});
+						});
+						//* resolve type
+						Q.push({
+							isImplementation,
+							isInput,
+							tsNode: propTypeNode,//_nodeType(propType, tsNodeType),
+							parentTsNode: tsNode,
+							entityName,
+							parentNode: method,
+							tsNodeType: propType, //tsNodeType
+							ignoreReturnedTypes
 						});
 					}
 					//* resolve type
@@ -501,7 +504,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (
 						parentNode.kind !== Kind.FIELD &&
 						parentNode.kind !== Kind.LIST &&
-						parentNode.kind !== Kind.PARAM
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
 					)
 						throw `Unexpected parentNode "${Kind[parentNode.kind]}"`;
 					//* Remove null, undefined and Promise
@@ -511,18 +515,24 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (typesLen === 0)
 						throw `Field has empty type: "${_getNodeName(parentTsNode ?? tsNode)}" at ${getNodePath(parentTsNode ?? tsNode)}`;
 					const typeName = cleanResult.name;
-					let staticValue: string | number | undefined
+					let staticValue: string | undefined
 					if (typesLen == 1) {
 						// Check if static value
 						const tp = types[0];
 						const dec = tp.symbol?.valueDeclaration;
 						if (dec == null) { }
-						else if (dec.kind === ts.SyntaxKind.EnumMember)
-							staticValue = typeChecker.getConstantValue(dec as ts.EnumMember);
+						else if (dec.kind === ts.SyntaxKind.EnumMember) {
+							const v = typeChecker.getConstantValue(dec as ts.EnumMember);
+							if (typeof v === 'string') staticValue = `"${_escapeStr(v)}"`;
+							else staticValue = String(v);
+						}
+						else if (ts.isLiteralTypeNode(dec))
+							staticValue = dec.literal.getText();
 						else if (dec.kind === ts.SyntaxKind.NumericLiteral)
-							staticValue = Number((dec as ts.NumericLiteral).text);
+							staticValue = (dec as ts.NumericLiteral).text;
 						else if (dec.kind === ts.SyntaxKind.StringLiteral)
-							staticValue = (dec as ts.StringLiteral).text;
+							staticValue = (dec as ts.StringLiteral).getText();
+
 					}
 					//* Add as reference
 					let tpRef: FieldType;
@@ -617,13 +627,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					} else {
 						tpRef = {
 							kind: Kind.STATIC_VALUE,
-							isInput,
-							jsDoc,
-							jsDocTags,
+							// isInput,
+							// jsDoc,
+							// jsDocTags,
 							isAsync: cleanResult.hasPromise,
-							name: typeName,
+							// name: typeName,
 							value: staticValue,
-							tsNodes: [tsNode]
+							// tsNodes: [tsNode]
 						};
 					}
 					parentNode.type = tpRef;
@@ -638,7 +648,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (
 						parentNode.kind !== Kind.FIELD &&
 						parentNode.kind !== Kind.LIST &&
-						parentNode.kind !== Kind.PARAM
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
 					)
 						throw `Unexpected parent node "${Kind[parentNode.kind]}" for "${ts.SyntaxKind[tsNode.kind]}" at: ${getNodePath(tsNode)}`;
 					const type: RefNode = {
@@ -689,7 +700,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					else if (
 						parentNode.kind === Kind.PARAM ||
 						parentNode.kind === Kind.LIST ||
-						parentNode.kind === Kind.FIELD
+						parentNode.kind === Kind.FIELD ||
+						parentNode.kind === Kind.METHOD
 					) {
 						parentNode.type = {
 							kind: Kind.REF,
@@ -768,7 +780,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (
 						parentNode.kind !== Kind.FIELD &&
 						parentNode.kind !== Kind.LIST &&
-						parentNode.kind !== Kind.PARAM
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
 					)
 						throw `Unexpected parent node "${Kind[parentNode.kind]}" for "TypeLiteral" at: ${getNodePath(tsNode)}`;
 					const name = entityName ?? LITERAL_ENTITY_DEFAULT_NAME;
@@ -819,8 +832,54 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				case ts.SyntaxKind.ModuleBlock:
 					_queueChildren(isInput, tsNode, parentNode);
 					break;
+				case ts.SyntaxKind.LiteralType: {
+					if (parentNode == null) continue rootLoop;
+					if (
+						parentNode.kind !== Kind.FIELD &&
+						parentNode.kind !== Kind.LIST &&
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
+					)
+						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for literalType`;
+					parentNode.type = {
+						kind: Kind.STATIC_VALUE,
+						value: (tsNode as ts.LiteralTypeNode).literal.getText(),
+						isAsync: false
+					};
+					break;
+				}
+				case ts.SyntaxKind.UndefinedKeyword:
+				case ts.SyntaxKind.VoidKeyword:
+					if (parentNode == null) continue rootLoop;
+					if (
+						parentNode.kind !== Kind.FIELD &&
+						parentNode.kind !== Kind.LIST &&
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
+					)
+						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for literalType`;
+					parentNode.type = {
+						kind: Kind.STATIC_VALUE,
+						value: _getNodeName(tsNode),
+						isAsync: false
+					};
+					break;
+				case ts.SyntaxKind.AnyKeyword:
+					if (parentNode == null) continue rootLoop;
+					if (
+						parentNode.kind !== Kind.FIELD &&
+						parentNode.kind !== Kind.LIST &&
+						parentNode.kind !== Kind.PARAM &&
+						parentNode.kind !== Kind.METHOD
+					)
+						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for "any"`;
+					parentNode.type = {
+						kind: Kind.ANY,
+						isAsync: false
+					};
+					break;
 				case ts.SyntaxKind.TupleType:
-					throw `Tuples are not supported, did you mean Array of type? at ${getNodePath(tsNode)}`;
+					throw `Tuples are not supported in this version, did you mean Array of type? at ${getNodePath(tsNode)}`;
 				case ts.SyntaxKind.TypeOperator: {
 					console.log('FOUND typeOperator: ', _getNodeName(tsNode), '>>', getNodePath(tsNode));
 					//FIXME Check what TypeOperatorNode do!
@@ -829,9 +888,10 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					break;
 				}
 			}
-		} catch (err) {
-			if (typeof err === 'string') errors.push(err);
-			else throw err;
+		} catch (err: any) {
+			if (typeof err !== 'string')
+				err = `[${ts.SyntaxKind[tsNode.kind]} : ${_getNodeName(tsNode)}] at: ${getNodePath(tsNode)}\n${err?.stack ?? err}`
+			errors.push(err);
 		}
 	}
 

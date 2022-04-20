@@ -6,14 +6,14 @@ import { ImplementedEntity } from "./parse";
 
 /** Nodes */
 export type Node = ObjectNode | FieldNode | MethodNode | ParamNode |
-	ListNode | ScalarNode | RefNode |
-	StaticValueNode | EnumNode | EnumMemberNode | ValidatorClassNode | ResolverClassNode | UnionNode | ScalarNode;
+	ListNode | ScalarNode | RefNode | StaticValueNode | EnumNode | EnumMemberNode |
+	ValidatorClassNode | ResolverClassNode | UnionNode | ScalarNode | AnyNode;
 
 /** Root nodes */
 export type RootNode = ObjectNode | ListNode | ScalarNode | UnionNode | EnumNode;
 
 /** Field possible types (string means reference) */
-export type FieldType = RefNode | StaticValueNode | undefined;
+export type FieldType = RefNode | StaticValueNode | AnyNode | undefined;
 
 /** @abstract root node */
 export interface _Node {
@@ -89,7 +89,7 @@ export interface MethodNode {
 	/** tsNode */
 	tsNode: ts.Node;
 	/** ref */
-	type: RefNode
+	type: FieldType
 	parent: FieldNode
 }
 
@@ -142,9 +142,9 @@ export interface RefNode extends _NamedNode {
 }
 
 /** Static value */
-export interface StaticValueNode extends _NamedNode {
+export interface StaticValueNode {
 	kind: Kind.STATIC_VALUE
-	value: string | number | boolean
+	value: string
 	isAsync: boolean
 }
 
@@ -209,4 +209,10 @@ export interface Annotation {
 export interface JsDocTag {
 	name: string
 	args: string | undefined
+}
+
+/** Any */
+export interface AnyNode {
+	kind: Kind.ANY
+	isAsync: false
 }

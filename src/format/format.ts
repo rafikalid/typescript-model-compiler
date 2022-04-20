@@ -1,10 +1,10 @@
 import { Kind } from "@parser/kind";
-import { FieldNode, ListNode, Node, ParamNode, RefNode, RootNode, StaticValueNode } from "@parser/model";
+import { AnyNode, FieldNode, ListNode, Node, ParamNode, RefNode, RootNode, StaticValueNode } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
 import { Compiler } from "..";
-import { FormattedField, FormattedMethod, FormattedParamNode, FormattedRef, FormattedRootNode, FormattedStaticValue } from "./model";
+import { FormattedField, FormattedFieldType, FormattedMethod, FormattedParamNode, FormattedRootNode } from "./model";
 import { _resolveScalars } from "./resolve-scalars";
 
 /**
@@ -48,13 +48,13 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						before: codeBefore,
 						after: codeAfter,
 						// Fields
-						parse: (field = entity.fields.get('parse')) && _formatField(field),
-						serialize: (field = entity.fields.get('serialize')) && _formatField(field),
-						fromDB: (field = entity.fields.get('fromDB')) && _formatField(field),
-						toDB: (field = entity.fields.get('toDB')) && _formatField(field),
-						default: (field = entity.fields.get('default')) && _formatField(field),
-						defaultOutput: (field = entity.fields.get('defaultOutput')) && _formatField(field),
-						mock: (field = entity.fields.get('mock')) && _formatField(field)
+						parse: (field = entity.fields.get('parse')) && _formatField(field, true),
+						serialize: (field = entity.fields.get('serialize')) && _formatField(field, true),
+						fromDB: (field = entity.fields.get('fromDB')) && _formatField(field, true),
+						toDB: (field = entity.fields.get('toDB')) && _formatField(field, true),
+						default: (field = entity.fields.get('default')) && _formatField(field, true),
+						defaultOutput: (field = entity.fields.get('defaultOutput')) && _formatField(field, true),
+						mock: (field = entity.fields.get('mock')) && _formatField(field, true)
 					};
 					break;
 				}
@@ -85,7 +85,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						jsDoc,
 						before: codeBefore,
 						after: codeAfter,
-						type: _resolveReference(entity.type, data)
+						type: _resolveReference(entity.type)
 					};
 					break;
 				}
@@ -116,7 +116,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 				}
 				default: {
 					let n: never = entity;
-					const e = entity as Node;
+					const e = entity as RootNode;
 					throw `Unexpected kind "${Kind[e.kind]}" for "${e.name}" at: ${getNodePath(entity)}`;
 				}
 			}
@@ -133,28 +133,34 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 	return result;
 
 	/** Format fields */
-	function _formatField(field: FieldNode): FormattedField {
-		if (field.className == null)
-			throw `Missing className for field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
+	function _formatField(field: FieldNode, ignoreType?: boolean | number): FormattedField {
+		// if (field.className == null)
+		// 	throw `Missing className for field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
 		// Before and after
 		const codeBefore: ts.Statement[] = [];
 		const codeAfter: ts.Statement[] = [];
 		//TODO
 		// Method
+		let formattedMethod: FormattedMethod | undefined;
 		const method = field.method;
-		const formattedMethod: FormattedMethod | undefined = method && {
-			kind: Kind.METHOD,
-			class: method.class,
-			isAsync: method.type.isAsync,
-			isStatic: method.isStatic,
-			name: method.name,
-			params: method.params.map(_resolveParams),
-			path: method.tsNode.getSourceFile().fileName,
-			type: _resolveReference(method.type, data)
-		};
+		if (method == null) { }
+		else if (method.type == null)
+			throw `Missing return type for method "${method.name}" at: ${getNodePath(method.tsNode)}`;
+		else {
+			formattedMethod = {
+				kind: Kind.METHOD,
+				class: method.class,
+				isAsync: method.type.isAsync,
+				isStatic: method.isStatic,
+				name: method.name,
+				params: method.params.map(_resolveParams),
+				path: method.tsNode.getSourceFile().fileName,
+				type: _resolveReference(method.type)
+			};
+		}
 		// type
 		const type = isInput ? field.type : field.method?.type ?? field.type;
-		if (type == null)
+		if (type == null && ignoreType === true)
 			throw `Missing type for ${isInput ? 'input' : 'output'} field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
 		// Return
 		return {
@@ -167,7 +173,11 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			className: field.className,
 			idx: field.idx,
 			method: formattedMethod,
-			type: _resolveReference(type, data)
+			type: type ? _resolveReference(type) : {
+				kind: Kind.STATIC_VALUE,
+				value: 'undefined',
+				isAsync: false
+			}
 		}
 	}
 
@@ -180,7 +190,39 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			name: param.name,
 			required: param.required,
 			isParentObject: param.isParentObject,
-			type: _resolveReference(param.type, data, param.isParentObject)
+			type: _resolveReference(param.type, true)
+		}
+	}
+	/** Resolve reference or static value */
+	function _resolveReference(type: RefNode | StaticValueNode | AnyNode, isParam?: boolean): FormattedFieldType {
+		if (type.kind === Kind.REF) {
+			let entityName = type.name;
+			if (!type.isFromPackage) {
+				const targetEntity = data.get(entityName);
+				if (targetEntity != null)
+					entityName = targetEntity.name;
+				else if (!isParam)
+					throw `Missing entity "${entityName}" referenced at: ${getNodePath(type.tsNodes)}`;
+			}
+			return {
+				kind: Kind.REF,
+				isAsync: type.isAsync,
+				name: entityName
+			}
+		} else if (type.kind === Kind.STATIC_VALUE) {
+			return {
+				kind: Kind.STATIC_VALUE,
+				value: type.value,
+				isAsync: false
+			}
+		} else if (type.kind === Kind.ANY) {
+			return {
+				kind: Kind.ANY,
+				isAsync: false
+			}
+		} else {
+			const n: never = type;
+			throw (`Unexpected type "${Kind[(type as any).kind]}" at: ${getNodePath((type as any).tsNodes)}`)
 		}
 	}
 }
@@ -214,30 +256,4 @@ function _compileJsDoc(arr: string[]): string | undefined {
 			} else return -1;
 		});
 	return result.length ? result.join("\n") : undefined;
-}
-
-/** Resolve reference or static value */
-function _resolveReference(type: RefNode | StaticValueNode, data: Map<string, RootNode | undefined>, resolveName: boolean = true): FormattedRef | FormattedStaticValue {
-	if (type.kind === Kind.REF) {
-		let entityName = type.name;
-		if (resolveName) {
-			const targetEntity = data.get(entityName);
-			if (targetEntity == null)
-				throw `Missing entity "${entityName}" referenced at: ${getNodePath(type.tsNodes)}`;
-			entityName = targetEntity.name;
-		}
-		return {
-			kind: Kind.REF,
-			isAsync: type.isAsync,
-			name: entityName
-		}
-	} else if (type.kind === Kind.STATIC_VALUE) {
-		return {
-			kind: Kind.STATIC_VALUE,
-			value: type.value
-		}
-	} else {
-		const n: never = type;
-		throw (`Unexpected type "${Kind[(type as any).kind]}" at: ${getNodePath((type as any).tsNodes)}`)
-	}
 }

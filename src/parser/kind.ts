@@ -28,4 +28,6 @@ export enum Kind {
 	VALIDATOR_CLASS,
 	/** Resolver class using "ResolversOf<T>" */
 	RESOLVER_CLASS,
+	/** Any value: disable all checks, accept everything */
+	ANY
 }

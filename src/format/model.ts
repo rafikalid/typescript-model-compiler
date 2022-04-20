@@ -39,10 +39,11 @@ export interface FormattedField extends _FormattedNode {
 	kind: Kind.FIELD
 	required: boolean
 	method: FormattedMethod | undefined,
-	className: string
+	/** Literal types has no class or interface name */
+	className: string | undefined
 	/** Field index inside it's own class */
 	idx: number
-	type: FormattedRef | FormattedStaticValue
+	type: FormattedFieldType
 }
 
 /** Formatted Enum */
@@ -54,7 +55,7 @@ export interface FormattedEnum extends _FormattedNode {
 /** Formatted List */
 export interface FormattedList extends _FormattedNode {
 	kind: Kind.LIST
-	type: FormattedRef | FormattedStaticValue
+	type: FormattedFieldType
 }
 
 /** Enum member */
@@ -76,6 +77,7 @@ export interface FormattedRef {
 export interface FormattedStaticValue {
 	kind: Kind.STATIC_VALUE
 	value: string | number | boolean
+	isAsync: false
 }
 
 /** Union */
@@ -103,7 +105,7 @@ export interface FormattedMethod {
 	/** Is async */
 	isAsync: boolean
 	/** ref */
-	type: FormattedRef | FormattedStaticValue
+	type: FormattedFieldType
 }
 
 /** Method params */
@@ -114,7 +116,16 @@ export interface FormattedParamNode {
 	/** If param is required */
 	required: boolean;
 	/** Type */
-	type: FormattedRef | FormattedStaticValue;
+	type: FormattedFieldType;
 	/** If this this is the type of parent object */
 	isParentObject: boolean
 }
+
+/** Formatted ANY */
+export interface FormattedAny {
+	kind: Kind.ANY
+	isAsync: false
+}
+
+/** Field type */
+export type FormattedFieldType = FormattedRef | FormattedStaticValue | FormattedAny;
