@@ -3,7 +3,7 @@ import type { StaticValue } from 'tt-model';
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, ParamType, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
+import { Decorator, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, ParamType, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
@@ -94,7 +94,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 				}
 			}
 			//* Parse decorators
-			const annotations: Annotation[] = [];
+			const annotations: Decorator[] = [];
 			const decorators = tsNode.decorators;
 			if (decorators != null) for (let j = 0, len = decorators.length ?? 0; j < len; ++j) {
 				const decorator = decorators[j];

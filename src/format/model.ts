@@ -1,5 +1,5 @@
 import { Kind } from "@parser/kind";
-import { MethodNode, ParamType } from "@parser/model";
+import { Annotation, ParamType } from "@parser/model";
 import ts from "typescript";
 
 /** Root nodes */
@@ -10,10 +10,12 @@ interface _FormattedNode {
 	kind: Kind
 	name: string
 	jsDoc: string | undefined
+	/** Annotations */
+	annotations: Map<string, Annotation[]> | undefined
 	/** Code to add before any validation / output or just after parsing */
-	before: ts.Statement[]
+	before: ts.Statement[] | undefined
 	/** Code to add after validation or output */
-	after: ts.Statement[]
+	after: ts.Statement[] | undefined
 }
 
 /** Formatted object */

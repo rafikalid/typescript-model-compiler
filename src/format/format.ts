@@ -1,5 +1,5 @@
 import { Kind } from "@parser/kind";
-import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode } from "@parser/model";
+import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Decorator, JsDocTag, Annotation } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
@@ -34,6 +34,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			const jsDoc = _compileJsDoc(entity.jsDoc);
 			let formattedEntity: FormattedRootNode;
 			// Before and after
+			const annotations = _groupAnnotations((entity as any).annotations, entity.jsDocTags);
 			const codeBefore: ts.Statement[] = [];
 			const codeAfter: ts.Statement[] = [];
 			//TODO
@@ -45,6 +46,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						kind: Kind.SCALAR,
 						name: entityName,
 						jsDoc,
+						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						// Fields
@@ -65,6 +67,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						kind: Kind.ENUM,
 						name: entityName,
 						jsDoc,
+						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						members: entity.members.map(member => ({
@@ -83,6 +86,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						kind: Kind.LIST,
 						name: entityName,
 						jsDoc,
+						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						type: _resolveReference(entity.type)
@@ -94,6 +98,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						kind: Kind.OBJECT,
 						name: entityName,
 						jsDoc,
+						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						fields: Array.from(entity.fields.values()).map(_formatField)
@@ -107,6 +112,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 						kind: Kind.UNION,
 						name: entityName,
 						jsDoc,
+						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						tsNodes: entity.tsNodes,
@@ -136,9 +142,6 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 	function _formatField(field: FieldNode, ignoreType?: boolean | number): FormattedField {
 		// if (field.className == null)
 		// 	throw `Missing className for field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
-		// Before and after
-		const codeBefore: ts.Statement[] = [];
-		const codeAfter: ts.Statement[] = [];
 		//TODO
 		// Method
 		let formattedMethod: FormattedMethod | undefined;
@@ -169,6 +172,10 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 		const type = isInput ? field.type : field.method?.type ?? field.type;
 		if (type == null && ignoreType === true)
 			throw `Missing type for ${isInput ? 'input' : 'output'} field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
+		// Before and after
+		const annotations = _groupAnnotations(field.annotations, field.jsDocTags);
+		const codeBefore: ts.Statement[] = [];
+		const codeAfter: ts.Statement[] = [];
 		// Return
 		return {
 			kind: Kind.FIELD,
@@ -176,6 +183,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			before: codeBefore,
 			after: codeAfter,
 			jsDoc: _compileJsDoc(field.jsDoc),
+			annotations,
 			required: field.required,
 			className: field.className,
 			idx: field.idx,
@@ -264,3 +272,25 @@ function _compileJsDoc(arr: string[]): string | undefined {
 		});
 	return result.length ? result.join("\n") : undefined;
 }
+/** Format annotations */
+function _groupAnnotations(decorators: Decorator[] | undefined, jsDocTags: JsDocTag[]): Map<string, Annotation[]> | undefined {
+	if ((decorators == null || decorators.length === 0) && jsDocTags.length === 0) return;
+	const result: Map<string, Annotation[]> = new Map();
+	// Add annotations
+	if (decorators != null)
+		for (let i = 0, len = decorators.length; i < len; ++i) {
+			const a = decorators[i];
+			const r = result.get(a.name);
+			if (r == null) result.set(a.name, [a]);
+			else r.push(a);
+		}
+	// Add jsDoc tags
+	for (let i = 0, len = jsDocTags.length; i < len; ++i) {
+		const a = jsDocTags[i];
+		const r = result.get(a.name);
+		if (r == null) result.set(a.name, [a]);
+		else r.push(a);
+	}
+	return result;
+}
+

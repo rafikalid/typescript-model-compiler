@@ -43,7 +43,7 @@ export interface ObjectNode extends _NamedNode {
 	/** Fields */
 	fields: Map<string, FieldNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Annotation[]
+	annotations: Decorator[]
 	/** Is target a class */
 	isClass: boolean;
 	/** Use for compatibility */
@@ -59,7 +59,7 @@ export interface FieldNode extends _NamedNode {
 	/** If field is required */
 	required: boolean;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Annotation[]
+	annotations: Decorator[]
 	/** Name of the class, interface or type */
 	className: string | undefined;
 	/** Content type: List or type name */
@@ -182,7 +182,7 @@ export interface ValidatorClassNode extends _NamedNode {
 	/** Fields */
 	fields: Map<string, FieldNode>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Annotation[]
+	annotations: Decorator[]
 	/** Parents name */
 	parentsName: string
 }
@@ -196,7 +196,9 @@ export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
 
 
 /** Annotation */
-export interface Annotation {
+export type Annotation = Decorator | JsDocTag;
+/** Decorator Annotation */
+export interface Decorator {
 	kind: Kind.DECORATOR
 	/** Annotation name */
 	name: string

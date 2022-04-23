@@ -1,14 +1,16 @@
 import { Kind } from "@parser/kind";
 import { FieldNode, ObjectNode, ParamType, RootNode, Node, MethodNode, FieldType, EnumMemberNode, ValidatorClassNode, ResolverClassNode } from "@parser/model";
-import { Annotation, ObjectElement, PropertyElement } from "tt-model";
+import { Annotation, Element, ObjectElement, PropertyElement } from "tt-model";
 import { _splitAccessPath } from "./utils";
 
 /** Element */
-abstract class _Element {
-	protected _elNode: ObjectNode | FieldNode;
-	protected _mapNodes: Map<string, RootNode>
+abstract class _Element<T extends FieldNode | ObjectNode> implements Element {
+	protected _elNode: T;
+	protected _mapNodes: Map<string, RootNode>;
+	name: string
 
-	constructor(node: FieldNode | ObjectNode, mapNodes: Map<string, RootNode>) {
+	constructor(node: T, mapNodes: Map<string, RootNode>) {
+		this.name = node.name;
 		this._elNode = node;
 		this._mapNodes = mapNodes;
 	}
@@ -35,6 +37,31 @@ abstract class _Element {
 			element: this as unknown as PropertyElement
 		}));
 		return jsDocTags.concat(annotations);
+	}
+
+	/** Get annotation */
+	getAnnotation(name: string) {
+		const result: Annotation[] = [];
+		const field = this._elNode;
+		field.jsDocTags.forEach(a => {
+			if (a.name === name)
+				result.push({
+					type: 'JSDOC_TAG',
+					name: a.name,
+					args: a.params,
+					element: this as unknown as PropertyElement
+				});
+		});
+		field.annotations.forEach(a => {
+			if (a.name === name)
+				result.push({
+					type: 'DECORATOR',
+					name: a.name,
+					args: a.params,
+					element: this as unknown as PropertyElement
+				});
+		});
+		return result;
 	}
 
 	/** Resolve path */
@@ -102,8 +129,7 @@ abstract class _Element {
 /**
  * property element
  */
-export class PropertyElementImp extends _Element implements PropertyElement {
-	name: string
+export class PropertyElementImp extends _Element<FieldNode> implements PropertyElement {
 	required: boolean;
 	type: 'Field' | 'Method'
 	isAsync: boolean;
@@ -111,12 +137,8 @@ export class PropertyElementImp extends _Element implements PropertyElement {
 	/** Alias to typeName */
 	parentTypeName: string
 
-	_elNode: FieldNode;
-
 	constructor(field: FieldNode, mapNodes: Map<string, RootNode>) {
 		super(field, mapNodes);
-		this._elNode = field;
-		this.name = field.name;
 		this.type = field.method ? 'Method' : 'Field';
 		this.required = field.required;
 		this.isAsync = field.type?.isAsync ?? false;
@@ -167,15 +189,11 @@ export class PropertyElementImp extends _Element implements PropertyElement {
 /**
  * Object element
  */
-export class ObjectElementImp extends _Element implements ObjectElement {
-	name: string
+export class ObjectElementImp extends _Element<ObjectNode> implements ObjectElement {
 	type: 'object' = 'object'
-	_elNode: ObjectNode
 
 	constructor(obj: ObjectNode, mapNodes: Map<string, RootNode>) {
 		super(obj, mapNodes);
-		this._elNode = obj;
-		this.name = obj.name;
 	}
 
 	/**
