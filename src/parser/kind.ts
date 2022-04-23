@@ -29,5 +29,9 @@ export enum Kind {
 	/** Resolver class using "ResolversOf<T>" */
 	RESOLVER_CLASS,
 	/** Any value: disable all checks, accept everything */
-	ANY
+	ANY,
+	/** Annotation */
+	DECORATOR,
+	/** JsDoc Tag */
+	JSDOC_TAG
 }

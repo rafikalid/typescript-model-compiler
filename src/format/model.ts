@@ -1,5 +1,5 @@
 import { Kind } from "@parser/kind";
-import { MethodNode } from "@parser/model";
+import { MethodNode, ParamType } from "@parser/model";
 import ts from "typescript";
 
 /** Root nodes */
@@ -117,8 +117,8 @@ export interface FormattedParamNode {
 	required: boolean;
 	/** Type */
 	type: FormattedFieldType;
-	/** If this this is the type of parent object */
-	isParentObject: boolean
+	/** Param type */
+	paramType: ParamType
 }
 
 /** Formatted ANY */

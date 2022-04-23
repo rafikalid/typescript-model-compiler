@@ -1,5 +1,6 @@
 import { Kind } from "./kind";
 import ts from "typescript";
+import type { StaticValue } from 'tt-model';
 
 
 /** Nodes */
@@ -19,7 +20,7 @@ export interface _Node {
 	/** JS DOCS */
 	jsDoc: string[];
 	/** jsDocTags */
-	jsDocTags: Map<string, JsDocTag[]> | undefined
+	jsDocTags: JsDocTag[]
 	/** code path where node exists, debug mode only */
 	tsNodes: ts.Node[]
 	/** Is input or output or both (undefined) */
@@ -41,8 +42,6 @@ export interface ObjectNode extends _NamedNode {
 	// orderByName: boolean | undefined;
 	/** Fields */
 	fields: Map<string, FieldNode>;
-	/** jsDocTags */
-	jsDocTags: Map<string, JsDocTag[]>;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
 	/** Is target a class */
@@ -61,8 +60,6 @@ export interface FieldNode extends _NamedNode {
 	required: boolean;
 	/** Annotations: [AnnotationName, AnnotationValue, ...] */
 	annotations: Annotation[]
-	/** jsDoc tags */
-	jsDocTags: _NamedNode["jsDocTags"] | undefined
 	/** Name of the class, interface or type */
 	className: string | undefined;
 	/** Content type: List or type name */
@@ -100,8 +97,16 @@ export interface ParamNode extends _NamedNode {
 	type: FieldType;
 	/** Parent node */
 	parent: MethodNode
-	/** If this this is the type of parent object */
-	isParentObject: boolean
+	/** Param type */
+	paramType: ParamType
+}
+
+/** Params type */
+export enum ParamType {
+	/** Is the type of parent node */ PARENT,
+	/** Is the input type */ INPUT,
+	/** Is Package helper */ PACKAGE,
+	/** Is user defined helper */ CONTEXT
 }
 
 /** List */
@@ -143,6 +148,7 @@ export interface RefNode extends _NamedNode {
 export interface StaticValueNode {
 	kind: Kind.STATIC_VALUE
 	value: string
+	name: string
 	isAsync: boolean
 }
 
@@ -191,6 +197,7 @@ export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
 
 /** Annotation */
 export interface Annotation {
+	kind: Kind.DECORATOR
 	/** Annotation name */
 	name: string
 	/** File path */
@@ -207,18 +214,19 @@ export interface Annotation {
 
 /** Js Doc Tag */
 export interface JsDocTag {
+	kind: Kind.JSDOC_TAG
 	name: string
-	args: string | undefined
+	params: StaticValueResponse[]
 }
 
 /** Any */
 export interface AnyNode {
 	kind: Kind.ANY
 	isAsync: false
+	name: string
 }
 
-/** Static values */
-export type StaticValue = string | number | boolean | undefined | StaticValue[];
+
 
 /** Static value response */
 export interface StaticValueResponse {

@@ -1,9 +1,9 @@
 import { getNodePath } from "@utils/node-path";
-import { assertValidSDL } from "graphql/validation/validate";
+import type { StaticValue } from 'tt-model';
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Annotation, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValue, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, ParamType, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
@@ -11,7 +11,7 @@ const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
 /** 
  * Parse schema
  */
-export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[], contextEntities: string[]) {
+export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[], contextEntities: Set<string>) {
 	//* Prepare
 	const typeChecker = program.getTypeChecker();
 	const tsNodePrinter = ts.createPrinter({
@@ -54,10 +54,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			let ignoreReturnedTypes = QItem.ignoreReturnedTypes;
 			//* Parse jsDoc
 			const jsDoc: string[] = tsNodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
-			let jsDocTags: Map<string, JsDocTag[]> | undefined; // Map<annotationName, annotationValue>
+			let jsDocTags: JsDocTag[] = []; // Map<annotationName, annotationValue>
 			const foundJsDocTags = tsNodeSymbol?.getJsDocTags();
+			let hasInputTag = false;
+			let hasOutputTag = false;
+			let hasEntityTag = false;
+			let hasResolversTag = false;
 			if (foundJsDocTags != null && foundJsDocTags.length > 0) {
-				jsDocTags = new Map();
 				for (let i = 0, len = foundJsDocTags.length; i < len; ++i) {
 					const tag = foundJsDocTags[i];
 					const tagText = tag.text?.map(c => c.text.trim()).join("\n");
@@ -67,19 +70,27 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							continue rootLoop;
 						case 'input':
 							if (!isInput) continue rootLoop;
+							hasInputTag = true;
 							break;
 						case 'output':
 							if (isInput) continue rootLoop;
+							hasOutputTag = true;
 							break;
+						case 'entity': hasEntityTag = true; break;
+						case 'resolvers': hasResolversTag = true; break;
 					}
 					// Save tag
-					const jsDocTag: JsDocTag = {
+					jsDocTags.push({
+						kind: Kind.JSDOC_TAG,
 						name: tag.name,
-						args: tagText //compiler._parseJsDocTagArgs(tagText)
-					}
-					const tags = jsDocTags.get(tag.name);
-					if (tags == null) jsDocTags.set(tag.name, [jsDocTag]);
-					else tags.push(jsDocTag);
+						params: tagText ? [{
+							name: tagText,
+							nativeName: undefined,
+							targetTsNode: undefined,
+							tsNode: tsNode,
+							value: undefined
+						}] : [] //compiler._parseJsDocTagArgs(tagText)
+					});
 				}
 			}
 			//* Parse decorators
@@ -169,6 +180,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					}
 					// Add
 					annotations.push({
+						kind: Kind.DECORATOR,
 						name: annotationName,
 						fileName: decoVar.getSourceFile().fileName,
 						isFromPackage,
@@ -178,6 +190,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					});
 				} else if (isFromPackage) {
 					annotations.push({
+						kind: Kind.DECORATOR,
 						name: annotationName,
 						fileName: decoVar.getSourceFile().fileName,
 						isFromPackage,
@@ -210,17 +223,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					if (implemented.type === HelperClass.ENTITY) {
 						ignoreReturnedTypes = false;
 						// Check if has @entity jsDoc tag
-						if (jsDocTags == null) {
-							_ignoreEntity(entityName, '@entity', tsNode);
-							continue rootLoop;
-						}
-						else if (jsDocTags.has('resolvers')) {
+						if (hasResolversTag) {
 							isImplementation = true; // If methods are resolvers or entity methods
 							if (isInput) continue rootLoop;// Not an input class
-							if (jsDocTags.has('entity'))
+							if (hasEntityTag)
 								throw `@entity and @resolvers are exclusive. at ${getNodePath(tsNode)}`;
 						}
-						else if (jsDocTags.has('entity')) {
+						else if (hasEntityTag) {
 							isImplementation = false;
 						} else {
 							_ignoreEntity(entityName, '@entity', tsNode);
@@ -251,44 +260,36 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							entity.jsDoc.push(...jsDoc);
 							entity.inherit.push(...implemented.entities);
 							entity.tsNodes.push(entityNode);
-							_mergeJsDocTags(entity.jsDocTags, jsDocTags);
+							entity.jsDocTags.push(...jsDocTags);
 						}
 					} else {
 						let kind: Kind;
 						switch (implemented.type) {
 							case HelperClass.RESOLVERS:
 								// Check jsDoc annotations
-								if (jsDocTags != null) {
-									if (jsDocTags.has('input')) throw `Could not use "@input" with "resolversOf" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "resolversOf" at: ${getNodePath(entityNode)}`;
-								}
+								if (hasInputTag) throw `Could not use "@input" with "resolversOf" at: ${getNodePath(entityNode)}`;
+								if (hasEntityTag) throw `Could not use "@entity" with "resolversOf" at: ${getNodePath(entityNode)}`;
 								if (isInput) continue rootLoop;
 								kind = Kind.RESOLVER_CLASS;
 								break;
 							case HelperClass.VALIDATORS:
 								// Check jsDoc annotations
-								if (jsDocTags != null) {
-									if (jsDocTags.has('output')) throw `Could not use "@output" with "validatorsOf" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "validatorsOf" at: ${getNodePath(entityNode)}`;
-								}
+								if (hasOutputTag) throw `Could not use "@output" with "validatorsOf" at: ${getNodePath(entityNode)}`;
+								if (hasEntityTag) throw `Could not use "@entity" with "validatorsOf" at: ${getNodePath(entityNode)}`;
 								if (!isInput) continue rootLoop;
 								kind = Kind.VALIDATOR_CLASS;
 								break;
 							case HelperClass.SCALAR:
-								if (jsDocTags != null) {
-									if (jsDocTags.has('output')) throw `Could not use "@output" with "Scalar" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('input')) throw `Could not use "@input" with "Scalar" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Scalar" at: ${getNodePath(entityNode)}`;
-								}
+								if (hasOutputTag) throw `Could not use "@output" with "Scalar" at: ${getNodePath(entityNode)}`;
+								if (hasInputTag) throw `Could not use "@input" with "Scalar" at: ${getNodePath(entityNode)}`;
+								if (hasEntityTag) throw `Could not use "@entity" with "Scalar" at: ${getNodePath(entityNode)}`;
 								kind = Kind.SCALAR;
 								ignoreReturnedTypes = true;
 								break;
 							case HelperClass.UNION:
-								if (jsDocTags != null) {
-									if (jsDocTags.has('output')) throw `Could not use "@output" with "Union" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('input')) throw `Could not use "@input" with "Union" at: ${getNodePath(entityNode)}`;
-									if (jsDocTags.has('entity')) throw `Could not use "@entity" with "Union" at: ${getNodePath(entityNode)}`;
-								}
+								if (hasOutputTag) throw `Could not use "@output" with "Union" at: ${getNodePath(entityNode)}`;
+								if (hasInputTag) throw `Could not use "@input" with "Union" at: ${getNodePath(entityNode)}`;
+								if (hasEntityTag) throw `Could not use "@entity" with "Union" at: ${getNodePath(entityNode)}`;
 								kind = Kind.UNION;
 								ignoreReturnedTypes = true;
 								break;
@@ -410,10 +411,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						field.annotations.push(...annotations);
 						field.jsDoc.push(...jsDoc);
 						field.tsNodes.push(tsNode);
-						if (jsDocTags != null) {
-							if (field.jsDocTags == null) field.jsDocTags = jsDocTags;
-							else _mergeJsDocTags(field.jsDocTags, jsDocTags);
-						}
+						field.jsDocTags.push(...jsDocTags);
 					}
 					//* Method
 					let method: MethodNode | undefined;
@@ -486,7 +484,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						tsNodes: [paramNode],
 						type: undefined,
 						parent: parentNode,
-						isParentObject: false
+						paramType: ParamType.INPUT
 					};
 					parentNode.params.push(param);
 					Q.push({
@@ -553,14 +551,15 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							isFromPackage: isTypeFromPackage
 						};
 						//* Check if is parent object type
-						let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
-						if (
-							parentNode.kind === Kind.PARAM &&
-							(cl = parentNode.parent.parent.parent) &&
-							cl.parentsName === typeName
-						) {
-							parentNode.isParentObject = true;
-							ignoreReturnedTypes = true;
+						if (parentNode.kind === Kind.PARAM) {
+							let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
+							if ((cl = parentNode.parent.parent.parent) && cl.parentsName === typeName) {
+								parentNode.paramType = ParamType.PARENT;
+								ignoreReturnedTypes = true;
+							} else if (isTypeFromPackage)
+								parentNode.paramType = ParamType.PACKAGE;
+							else if (contextEntities.has(typeName))
+								parentNode.paramType = ParamType.CONTEXT;
 						}
 						//* else
 						if (!ignoreReturnedTypes) {
@@ -600,7 +599,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 											isClass: false,
 											isInput,
 											jsDoc: [], //TODO get from original entity
-											jsDocTags: new Map(), //TODO get from original tag
+											jsDocTags: [], //TODO get from original tag
 											name: typeName,
 											tsNodes: [parentTsNode ?? tsNode],// TODO get from original entity
 											parentsName: undefined
@@ -637,6 +636,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							isAsync: cleanResult.hasPromise,
 							// name: typeName,
 							value: staticValue,
+							name: staticValue,
 							// tsNodes: [tsNode]
 						};
 					}
@@ -717,14 +717,14 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							name: entityName,
 							tsNodes: [tsNode]
 						};
-						let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
-						if (
-							parentNode.kind === Kind.PARAM &&
-							(cl = parentNode.parent.parent.parent) &&
-							cl.parentsName === entityName
-						) {
-							parentNode.isParentObject = true;
-							ignoreReturnedTypes = true;
+						//* Check if is parent object type
+						if (parentNode.kind === Kind.PARAM) {
+							let cl: ObjectNode | ScalarNode | ValidatorClassNode | ResolverClassNode | UnionNode | undefined;
+							if ((cl = parentNode.parent.parent.parent) && cl.parentsName === entityName) {
+								parentNode.paramType = ParamType.PARENT;
+								ignoreReturnedTypes = true;
+							} else if (contextEntities.has(entityName))
+								parentNode.paramType = ParamType.CONTEXT;
 						}
 					}
 					break;
@@ -802,7 +802,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						isInput,
 						isClass: false,
 						jsDoc,
-						jsDocTags: jsDocTags ?? new Map(),
+						jsDocTags: jsDocTags ?? [],
 						tsNodes: [tsNode],
 						parentsName: undefined
 					};
@@ -849,9 +849,11 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						parentNode.kind !== Kind.METHOD
 					)
 						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for literalType`;
+					const nodeValue = (tsNode as ts.LiteralTypeNode).literal.getText();
 					parentNode.type = {
 						kind: Kind.STATIC_VALUE,
-						value: (tsNode as ts.LiteralTypeNode).literal.getText(),
+						value: nodeValue,
+						name: nodeValue,
 						isAsync: false
 					};
 					break;
@@ -866,10 +868,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						parentNode.kind !== Kind.METHOD
 					)
 						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for literalType`;
+					const nodeName = _getNodeName(tsNode);
 					parentNode.type = {
 						kind: Kind.STATIC_VALUE,
-						value: _getNodeName(tsNode),
-						isAsync: false
+						value: nodeName,
+						isAsync: false,
+						name: nodeName
 					};
 					break;
 				case ts.SyntaxKind.AnyKeyword:
@@ -883,7 +887,8 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						throw `Unexpected parentNode "${Kind[parentNode.kind]}" for "any"`;
 					parentNode.type = {
 						kind: Kind.ANY,
-						isAsync: false
+						isAsync: false,
+						name: 'any'
 					};
 					break;
 				case ts.SyntaxKind.TupleType:
@@ -944,8 +949,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					} else if (entity.kind !== Kind.OBJECT)
 						errors.push(`Could not add ${isResolvers ? 'resolvers' : 'validators'} to "${node.name}" as ${Kind[entity.kind]} at ${getNodePath(entity.tsNodes)}`);
 					else {
-						if (helper.jsDocTags != null)
-							_mergeJsDocTags(entity.jsDocTags, helper.jsDocTags);
+						entity.jsDocTags.push(...helper.jsDocTags);
 						entity.annotations.push(...helper.annotations);
 						// Merge fields
 						const fields = entity.fields;
@@ -960,8 +964,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								targetField.jsDoc.push(...field.jsDoc);
 								targetField.annotations.push(...field.annotations);
 								// jsDoc tags
-								if (targetField.jsDocTags == null) targetField.jsDocTags = field.jsDocTags;
-								else if (field.jsDocTags != null) _mergeJsDocTags(targetField.jsDocTags, field.jsDocTags);
+								targetField.jsDocTags.push(...field.jsDocTags);
 							}
 						});
 					}
@@ -1267,16 +1270,6 @@ export interface LiteralObject {
 
 /** Get node name signature */
 export type GetNodeNameSignature = (node: ts.Node) => string
-
-
-//* Merge jsDoc tags
-function _mergeJsDocTags(target: Map<string, JsDocTag[]>, src: Map<string, JsDocTag[]>) {
-	src.forEach(function (value, key) {
-		const v = target.get(key);
-		if (v == null) target.set(key, value);
-		else if (value.length) v.push(...value);
-	});
-}
 
 /** Helper class return value */
 export enum HelperClass {

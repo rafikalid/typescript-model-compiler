@@ -1,5 +1,5 @@
 import { Kind } from "@parser/kind";
-import { AnyNode, FieldNode, ListNode, Node, ParamNode, RefNode, RootNode, StaticValueNode } from "@parser/model";
+import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
@@ -147,6 +147,13 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 		else if (method.type == null)
 			throw `Missing return type for method "${method.name}" at: ${getNodePath(method.tsNode)}`;
 		else {
+			// Check input values
+			let inputs = method.params.filter(p => p.paramType == ParamType.INPUT);
+			if (inputs.length > 1) {
+				const inputNames = inputs.map(i => `"${i.name}: ${i.type?.name}"`).join(', ');
+				throw `Expected one input argument for the ${field.isInput ? 'validator' : 'resolver'} "${field.parent.name}.${field.name}". Got ${inputNames} at ${getNodePath(method.tsNode)}`;
+			}
+			// Format method
 			formattedMethod = {
 				kind: Kind.METHOD,
 				class: method.class,
@@ -189,7 +196,7 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			kind: Kind.PARAM,
 			name: param.name,
 			required: param.required,
-			isParentObject: param.isParentObject,
+			paramType: param.paramType,
 			type: _resolveReference(param.type, true)
 		}
 	}

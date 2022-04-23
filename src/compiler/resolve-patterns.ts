@@ -1,5 +1,6 @@
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
+import { Compiler } from "./compile";
 
 /**
  * Resolve patterns
@@ -8,10 +9,11 @@ import ts from "typescript";
 export function resolvePatterns(
 	program: ts.Program,
 	files: string[],
-	libs: Record<string, MethodDesc>
+	compiler: Compiler
 ): ResolvedPattern[] {
 	const result: ResolvedPattern[] = [];
 	const typeChecker = program.getTypeChecker();
+	const libs = compiler._resolvePatternsOptions();
 	//* Selected all methods
 	const methods = new Set();
 	for (let k in libs) {
@@ -96,7 +98,7 @@ export interface _ResolvedPattern {
 	/** Resolved files via Glob pattern */
 	files: string[]
 	/** Additional entities added by user */
-	contextEntities: string[]
+	contextEntities: Set<string>
 	/** Method text: used for debug */
 	methodText: string
 }
@@ -106,8 +108,7 @@ export interface ResolvedPatternGraphQL extends _ResolvedPattern {
 	lib: 'tt-model'
 	methodName: 'scanGraphQL'
 	schemaEntityName: string
-	contextEntityName: string
-	//TODO resolve jsDoc annotations
+	jsDocAnnotations: ts.ClassDeclaration | undefined
 }
 
 /** Scan pattern */

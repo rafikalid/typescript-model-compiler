@@ -1,10 +1,9 @@
-import { PACKAGE_NAME } from "@src/config";
 import { info } from "@utils/log";
 import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
-import { ScanFile, TargetExtension } from "./interface";
+import { ScanFile } from "./interface";
 import { _createProgram } from "./program";
-import { ResolvedPattern, resolvePatterns } from "./resolve-patterns";
+import { MethodDesc, ResolvedPattern, resolvePatterns } from "./resolve-patterns";
 import { parseTsConfig } from "./tsconfig-parser";
 import { resolveFilePattern } from "@utils/file-pattern";
 import { parseSchema } from "@parser/parse";
@@ -108,11 +107,11 @@ export class Compiler {
 
 	/** Resolve patterns by scan */
 	resolvePatterns(program: ts.Program, files: string[]): ResolvedPattern[] {
-		return resolvePatterns(program, files, this._resolvePatternsOptions());
+		return resolvePatterns(program, files, this);
 	}
 
 	/** Resolve pattern options: Enables override by inheritance */
-	_resolvePatternsOptions() {
+	_resolvePatternsOptions(): Record<string, MethodDesc> {
 		return {
 			'tt-model': {
 				className: 'Model',
@@ -131,7 +130,7 @@ export class Compiler {
 						throw new Error(`Expect type references for Mode.${methodName} at: ${getNodePath(node)}`);
 					const pattern = arg.getText().slice(1, -1);
 					//* Resolve Context Entities
-					const contextEntities: string[] = [];
+					const contextEntities: Set<string> = new Set();
 					const additionalEntitiesArg = node.typeArguments?.[2];
 					if (additionalEntitiesArg == null) { }
 					else if (ts.isTupleTypeNode(additionalEntitiesArg)) {
@@ -139,12 +138,26 @@ export class Compiler {
 							if (ts.isNamedTupleMember(typeNode)) typeNode = typeNode.type;
 							const type = typeChecker.getTypeFromTypeNode(typeNode);
 							const typeName = (type.aliasSymbol ?? type.symbol).name;
-							contextEntities.push(typeName);
+							contextEntities.add(typeName);
 						});
 					} else {
 						const type = typeChecker.getTypeFromTypeNode(additionalEntitiesArg);
 						const typeName = (type.aliasSymbol ?? type.symbol).name;
-						contextEntities.push(typeName);
+						contextEntities.add(typeName);
+					}
+					//* Resolve jsDoc Annotation resolvers
+					let jsDocAnnotations: ts.ClassDeclaration | undefined;
+					const jsDocArg = typeArguments[1];
+					if (jsDocArg != null && jsDocArg.kind !== ts.SyntaxKind.VoidKeyword) {
+						if (jsDocArg.kind !== ts.SyntaxKind.TypeReference)
+							throw `Unexpected value for argument "jsDocAnnotation" at: ${getNodePath(jsDocArg)}`;
+						const jsType = typeChecker.getTypeAtLocation(jsDocArg);
+						const dec = (jsType.aliasSymbol ?? jsType.symbol)?.declarations?.[0];
+						if (dec == null)
+							throw `Could not find "${jsDocArg.getText()}" at: ${getNodePath(jsDocArg)}`;
+						if (!ts.isClassDeclaration(dec))
+							throw `Expected class for argument "jsDocAnnotation". Got "${ts.SyntaxKind[dec.kind]}" at: ${getNodePath(jsDocArg)}`;
+						jsDocAnnotations = dec;
 					}
 					//* Resolve files
 					const files = resolveFilePattern(srcFile.fileName, pattern);
@@ -159,9 +172,8 @@ export class Compiler {
 						pattern,
 						files,
 						schemaEntityName: typeArguments[0].getText(),
-						contextEntityName: typeArguments[1]?.getText(),
-						// TODO resolve annotation class
-						contextEntities
+						contextEntities,
+						jsDocAnnotations: jsDocAnnotations
 					};
 				}
 			}
@@ -219,7 +231,7 @@ export class Compiler {
 	 * @param { string[] } files				- Path to files to parse
 	 * @param { string[] } contextEntities		- Additional entities added by user
 	 */
-	_parse(files: string[], contextEntities: string[]) {
+	_parse(files: string[], contextEntities: Set<string>) {
 		return parseSchema(this, this.#program, files, contextEntities);
 	}
 
