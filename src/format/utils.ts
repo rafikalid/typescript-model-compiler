@@ -66,3 +66,13 @@ export function _splitAccessPath(path: string) {
 	}
 	return result;
 }
+
+/** Get and parse call expression from node */
+export function _getCallExpression(
+	prop: ts.Node,
+	typeChecker: ts.TypeChecker,
+	cacheCall: Map<ts.CallExpression | ts.FunctionDeclaration | ts.MethodDeclaration, (...args: any[]) => any>
+): (...args: any[]) => any {
+	// TODO
+	throw `Expected jsDoc annotation "${s.name}" to be a method. Got "${ts.SyntaxKind[prop.kind]}" at: ${getNodePath(prop)}`;
+}

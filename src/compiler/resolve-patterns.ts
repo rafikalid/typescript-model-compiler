@@ -1,4 +1,5 @@
 import { getNodePath } from "@utils/node-path";
+import { JsDocAnnotationMethod } from "tt-model";
 import ts from "typescript";
 import { Compiler } from "./compile";
 
@@ -101,6 +102,8 @@ export interface _ResolvedPattern {
 	contextEntities: Set<string>
 	/** Method text: used for debug */
 	methodText: string
+	/** JsDoc annotations */
+	jsDocAnnotations: Map<string, JsDocAnnotationMethod>
 }
 
 /** Graphql pattern */
@@ -108,7 +111,6 @@ export interface ResolvedPatternGraphQL extends _ResolvedPattern {
 	lib: 'tt-model'
 	methodName: 'scanGraphQL'
 	schemaEntityName: string
-	jsDocAnnotations: ts.ClassDeclaration | undefined
 }
 
 /** Scan pattern */

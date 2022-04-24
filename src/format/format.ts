@@ -1,3 +1,4 @@
+import { ResolvedPattern } from "@compiler/resolve-patterns";
 import { Kind } from "@parser/kind";
 import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Decorator, JsDocTag, Annotation } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
@@ -5,25 +6,41 @@ import { getNodePath } from "@utils/node-path";
 import ts from "typescript";
 import { Compiler } from "..";
 import { FormattedField, FormattedFieldType, FormattedMethod, FormattedParamNode, FormattedRootNode } from "./model";
-import { _resolveScalars } from "./resolve-scalars";
+import { ScalarParser, ScalarParsers, _resolveScalars } from "./resolve-scalars";
 
 /**
  * Format parsed data
  */
-export function format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: ReturnType<typeof parseSchema>) {
+export function format(
+	compiler: Compiler,
+	compilerOptions: ts.CompilerOptions,
+	data: ReturnType<typeof parseSchema>,
+	parseOptions: ResolvedPattern,
+	scalars: ScalarParsers,
+) {
 	return {
-		input: _format(compiler, compilerOptions, data.input, true),
-		output: _format(compiler, compilerOptions, data.output, false)
+		input: _format(compiler, compilerOptions, data.input, parseOptions, scalars.input, true),
+		output: _format(compiler, compilerOptions, data.output, parseOptions, scalars.output, false)
 	};
 }
 
 /** Format input entities */
-function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: Map<string, RootNode | undefined>, isInput: boolean) {
-	//* Resolver scalar parsers
-	const scalars = _resolveScalars(compiler, compilerOptions, data);
+function _format(
+	compiler: Compiler,
+	compilerOptions: ts.CompilerOptions,
+	data: Map<string, RootNode | undefined>,
+	parseOptions: ResolvedPattern,
+	scalars: ScalarParser,
+	isInput: boolean
+) {
 	const result: Map<string, FormattedRootNode> = new Map();
 	//* format entities
 	const errors: string[] = [];
+	/**
+	 * Root code to add to page root context
+	 * Usually contains import statements
+	 */
+	const ROOT_CODE: ts.Statement[] = [];
 	data.forEach(function (entity) {
 		try {
 
@@ -35,8 +52,16 @@ function _format(compiler: Compiler, compilerOptions: ts.CompilerOptions, data: 
 			let formattedEntity: FormattedRootNode;
 			// Before and after
 			const annotations = _groupAnnotations((entity as any).annotations, entity.jsDocTags);
-			const codeBefore: ts.Statement[] = [];
-			const codeAfter: ts.Statement[] = [];
+			//* Apply annotations
+			let codeBefore: ts.Statement[] | undefined;
+			let codeAfter: ts.Statement[] | undefined;
+			if (annotations != null) {
+				codeBefore = [];
+				codeAfter = [];
+				annotations.forEach(function (annotation, annotationName) {
+					// Get annotation 
+				});
+			}
 			//TODO
 			// Add formatted entity
 			switch (entity.kind) {

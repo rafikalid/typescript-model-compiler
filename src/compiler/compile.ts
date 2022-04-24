@@ -10,6 +10,9 @@ import { parseSchema } from "@parser/parse";
 import { printTree } from "@utils/console-print";
 import { format } from "@src/format/format";
 import { resolve as resolvePath } from 'path';
+import { JsDocAnnotationMethod } from "tt-model";
+import { _getCallExpression } from "@src/format/utils";
+import { ScalarParsers, _resolveScalars } from "@src/format/resolve-scalars";
 
 
 /** Compiler */
@@ -84,11 +87,16 @@ export class Compiler {
 		//* Parse patterns
 		for (let i = 0, len = mapPatterns.length; i < len; ++i) {
 			const parseOptions = mapPatterns[i];
+			//* Parse
 			info(`>> Parsing ${parseOptions.methodText}`);
 			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities);
-			info('Format >>');
-			const formatted = this._format(parsed);
-			console.log(printTree(parsed, '\t'));
+			info('>> Resolve scalars');
+			//* Resolver scalar parsers
+			const scalars = _resolveScalars(this, this.#compilerOptions, parsed, this.#program.getTypeChecker());
+			//* Format
+			info('>> Format');
+			const formatted = this._format(parsed, parseOptions, scalars);
+			console.log(printTree(formatted, '\t'));
 		}
 
 		throw 'END';
@@ -146,18 +154,31 @@ export class Compiler {
 						contextEntities.add(typeName);
 					}
 					//* Resolve jsDoc Annotation resolvers
-					let jsDocAnnotations: ts.ClassDeclaration | undefined;
+					let jsDocAnnotations: Map<string, JsDocAnnotationMethod> = new Map();
 					const jsDocArg = typeArguments[1];
 					if (jsDocArg != null && jsDocArg.kind !== ts.SyntaxKind.VoidKeyword) {
 						if (jsDocArg.kind !== ts.SyntaxKind.TypeReference)
 							throw `Unexpected value for argument "jsDocAnnotation" at: ${getNodePath(jsDocArg)}`;
 						const jsType = typeChecker.getTypeAtLocation(jsDocArg);
-						const dec = (jsType.aliasSymbol ?? jsType.symbol)?.declarations?.[0];
-						if (dec == null)
+						const decSym = jsType.aliasSymbol ?? jsType.symbol;
+						if (decSym == null)
 							throw `Could not find "${jsDocArg.getText()}" at: ${getNodePath(jsDocArg)}`;
-						if (!ts.isClassDeclaration(dec))
-							throw `Expected class for argument "jsDocAnnotation". Got "${ts.SyntaxKind[dec.kind]}" at: ${getNodePath(jsDocArg)}`;
-						jsDocAnnotations = dec;
+						// if (ts)
+						// 	throw `Expected class for argument "jsDocAnnotation". Got "${ts.SyntaxKind[dec.kind]}" at: ${getNodePath(jsDocArg)}`;
+						const errors: string[] = [];
+						decSym.members?.forEach(s => {
+							try {
+								const prop = s.declarations?.[0];
+								if (prop == null) return;
+								const propCall = _getCallExpression(prop, typeChecker, this._cacheCallExpression);
+								jsDocAnnotations.set(s.name, propCall);
+							} catch (error: any) {
+								if (typeof error !== 'string') error = error?.message ?? error;
+								errors.push(error);
+							}
+						});
+						if (errors.length > 0)
+							throw new Error(`JsDoc Annotation Errors: \n\t${errors.join('\n\t')}`);
 					}
 					//* Resolve files
 					const files = resolveFilePattern(srcFile.fileName, pattern);
@@ -238,8 +259,8 @@ export class Compiler {
 	/**
 	 * Format parsed entities
 	 */
-	_format(data: ReturnType<typeof parseSchema>) {
-		return format(this, this.#compilerOptions, data);
+	_format(data: ReturnType<typeof parseSchema>, parseOptions: ResolvedPattern, scalars: ScalarParsers) {
+		return format(this, this.#compilerOptions, data, parseOptions, scalars);
 	}
 
 	/**
