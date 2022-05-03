@@ -4,7 +4,7 @@ import { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
 import { Scalar } from "tt-model";
 import ts from "typescript";
-import { Compiler } from "..";
+import { CallCacheExprMap, Compiler } from "..";
 import { _getCallExpression, _resolveHandler } from "./utils";
 
 /**
@@ -32,8 +32,8 @@ export function _resolveScalars(
 			try {
 				if (entity == null) { }
 				else if (entity.kind === Kind.SCALAR) {
-					_parseHandler(entity, scalarName, 'assertJsDocParser', scalarsAssert);
-					_parseHandler(entity, scalarName, 'defaultJsDocParser', scalarsDefault);
+					_parseHandler(entity, scalarName, 'assertJsDocParser', scalarsAssert, cacheCall);
+					_parseHandler(entity, scalarName, 'defaultJsDocParser', scalarsDefault, cacheCall);
 				}
 			} catch (err) {
 				if (typeof err === 'string') errors.push(err);
@@ -49,26 +49,15 @@ export function _resolveScalars(
 		};
 	}
 
-	function _parseHandler(scalarNode: ScalarNode, scalarName: string, key: string, targetMap: Map<string, any>) {
+	function _parseHandler(scalarNode: ScalarNode, scalarName: string, key: string, targetMap: Map<string, any>, cacheCall: CallCacheExprMap) {
 		const callEl = scalarNode.fields.get(key);
 		if (callEl?.method == null) return;
 		const tsNode = callEl.method.tsNode;
-		targetMap.set(scalarName, _getCallExpression(tsNode, typeChecker, cacheCall));
-		if (
-			ts.isMethodDeclaration(tsNode) ||
-			ts.isFunctionDeclaration(tsNode) ||
-			ts.isCallExpression(tsNode)
-		) {
-			let fx = cacheCall.get(tsNode);
-			if (fx == null) {
-				fx = _resolveHandler(tsNode, compilerOptions);
-				if (fx == null)
-					throw `Could not compile handler for "${scalarName}.${key}" at: ${getNodePath(tsNode)}`;
-				cacheCall.set(tsNode, fx);
-			}
-			targetMap.set(scalarName, fx);
-		} else {
-			throw `Expected call expression for "${scalarName}.${key}". Got "${ts.SyntaxKind[tsNode.kind]}" at: ${getNodePath(tsNode)}`;
+		try {
+			targetMap.set(scalarName, _getCallExpression(tsNode, typeChecker, cacheCall, compilerOptions));
+		} catch (err: any) {
+			err = `Fail to compile handler for scalar "${scalarName}.${key}". Caused by: ${err?.message ?? err}`;
+			throw err;
 		}
 	}
 }

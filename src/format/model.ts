@@ -10,8 +10,6 @@ interface _FormattedNode {
 	kind: Kind
 	name: string
 	jsDoc: string | undefined
-	/** Annotations */
-	annotations: Map<string, Annotation[]> | undefined
 	/** Code to add before any validation / output or just after parsing */
 	before: ts.Statement[] | undefined
 	/** Code to add after validation or output */
@@ -39,6 +37,8 @@ export interface FormattedScalar extends _FormattedNode {
 /** Formatted field */
 export interface FormattedField extends _FormattedNode {
 	kind: Kind.FIELD
+	/** external name */
+	alias: string
 	required: boolean
 	method: FormattedMethod | undefined,
 	/** Literal types has no class or interface name */

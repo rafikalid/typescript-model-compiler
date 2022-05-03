@@ -1,6 +1,6 @@
 import { Kind } from "./kind";
 import ts from "typescript";
-import type { StaticValue } from 'tt-model';
+import type { JsDocAnnotationMethod, StaticValue } from 'tt-model';
 
 
 /** Nodes */
@@ -20,7 +20,7 @@ export interface _Node {
 	/** JS DOCS */
 	jsDoc: string[];
 	/** jsDocTags */
-	jsDocTags: JsDocTag[]
+	annotations: Annotation[]
 	/** code path where node exists, debug mode only */
 	tsNodes: ts.Node[]
 	/** Is input or output or both (undefined) */
@@ -42,8 +42,6 @@ export interface ObjectNode extends _NamedNode {
 	// orderByName: boolean | undefined;
 	/** Fields */
 	fields: Map<string, FieldNode>;
-	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Decorator[]
 	/** Is target a class */
 	isClass: boolean;
 	/** Use for compatibility */
@@ -54,12 +52,12 @@ export interface ObjectNode extends _NamedNode {
 /** Field */
 export interface FieldNode extends _NamedNode {
 	kind: Kind.FIELD
+	/** External name */
+	alias?: string
 	/** Field index inside it's parent object */
 	idx: number;
 	/** If field is required */
 	required: boolean;
-	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Decorator[]
 	/** Name of the class, interface or type */
 	className: string | undefined;
 	/** Content type: List or type name */
@@ -181,8 +179,6 @@ export interface ValidatorClassNode extends _NamedNode {
 	entities: ImplementedEntity[]
 	/** Fields */
 	fields: Map<string, FieldNode>;
-	/** Annotations: [AnnotationName, AnnotationValue, ...] */
-	annotations: Decorator[]
 	/** Parents name */
 	parentsName: string
 }
@@ -195,30 +191,33 @@ export interface ResolverClassNode extends Omit<ValidatorClassNode, 'kind'> {
 }
 
 
+
 /** Annotation */
-export type Annotation = Decorator | JsDocTag;
-/** Decorator Annotation */
-export interface Decorator {
-	kind: Kind.DECORATOR
+export type Annotation = PackageAnnotation | UserAnnotation;
+
+/** Annotation */
+interface _Annotation {
+	kind: Kind.DECORATOR | Kind.JSDOC_TAG
 	/** Annotation name */
 	name: string
-	/** File path */
-	fileName: string
 	/** If is from tt-Model or sub-package */
 	isFromPackage: boolean
 	/** Annotation argument */
 	params: StaticValueResponse[]
 	/** Target tsNode */
 	tsNode: ts.Node
-	/** Annotation Handler */
-	handler?: ts.CallExpression | ts.FunctionDeclaration | ts.MethodDeclaration
 }
 
-/** Js Doc Tag */
-export interface JsDocTag {
-	kind: Kind.JSDOC_TAG
-	name: string
-	params: StaticValueResponse[]
+/** Package annotation */
+export interface PackageAnnotation extends _Annotation {
+	isFromPackage: true
+}
+
+/** User annotation */
+export interface UserAnnotation extends _Annotation {
+	isFromPackage: false
+	/** Annotation Handler */
+	handler: JsDocAnnotationMethod
 }
 
 /** Any */

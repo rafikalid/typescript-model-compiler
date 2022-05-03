@@ -22,7 +22,7 @@ export class Compiler {
 		resolvePath('node_modules/tt-model/src/interfaces/scalars-default.ts')
 	];
 	/** Typescript Compiler Options */
-	#compilerOptions: ts.CompilerOptions
+	readonly _compilerOptions: ts.CompilerOptions
 
 	/** Scans */
 	#scans: ScanFile[] = [];
@@ -34,7 +34,7 @@ export class Compiler {
 	#program!: ts.Program;
 
 	/** Call expression parser cache */
-	_cacheCallExpression: Map<ts.CallExpression | ts.MethodDeclaration | ts.FunctionDeclaration, (...args: any[]) => any> = new Map();
+	_cacheCallExpression: CallCacheExprMap = new Map();
 
 	/** Store file contents */
 	#files: Map<string, string | undefined> = new Map();
@@ -48,7 +48,7 @@ export class Compiler {
 	) {
 		//* Parse ts config
 		if (typeof compilerOptions === 'string') compilerOptions = parseTsConfig(compilerOptions);
-		this.#compilerOptions = compilerOptions;
+		this._compilerOptions = compilerOptions;
 		//* Add tt-model default scalars
 		const mapFiles = this.#files;
 		this._libs.forEach(file => {
@@ -78,7 +78,7 @@ export class Compiler {
 
 		//* Program
 		info('>> Create Program');
-		const program = this.#program = _createProgram(files, this.#compilerOptions, encoding, this.#program);
+		const program = this.#program = _createProgram(files, this._compilerOptions, encoding, this.#program);
 
 		//* Load target files from patterns
 		info(`>> Load Patterns and files`);
@@ -89,10 +89,10 @@ export class Compiler {
 			const parseOptions = mapPatterns[i];
 			//* Parse
 			info(`>> Parsing ${parseOptions.methodText}`);
-			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities);
+			const parsed = this._parse(parseOptions.files, parseOptions.contextEntities, parseOptions.jsDocAnnotations);
 			info('>> Resolve scalars');
 			//* Resolver scalar parsers
-			const scalars = _resolveScalars(this, this.#compilerOptions, parsed, this.#program.getTypeChecker());
+			const scalars = _resolveScalars(this, this._compilerOptions, parsed, this.#program.getTypeChecker());
 			//* Format
 			info('>> Format');
 			const formatted = this._format(parsed, parseOptions, scalars);
@@ -167,13 +167,14 @@ export class Compiler {
 						// 	throw `Expected class for argument "jsDocAnnotation". Got "${ts.SyntaxKind[dec.kind]}" at: ${getNodePath(jsDocArg)}`;
 						const errors: string[] = [];
 						decSym.members?.forEach(s => {
+							const prop = s.declarations?.[0];
+							if (prop == null) return;
 							try {
-								const prop = s.declarations?.[0];
-								if (prop == null) return;
-								const propCall = _getCallExpression(prop, typeChecker, this._cacheCallExpression);
+								const propCall = _getCallExpression(prop, typeChecker, this._cacheCallExpression, this._compilerOptions);
 								jsDocAnnotations.set(s.name, propCall);
 							} catch (error: any) {
 								if (typeof error !== 'string') error = error?.message ?? error;
+								error = `Fail to parse handler for annotation "${s.name}" at ${getNodePath(prop)}. Caused by: ${error?.message ?? error}`
 								errors.push(error);
 							}
 						});
@@ -236,7 +237,7 @@ export class Compiler {
 	 * @param { string } data	- [filePath, fileContent, ...]
 	 */
 	transpile(data: string[]): string[] {
-		const compilerOptions = this.#compilerOptions;
+		const compilerOptions = this._compilerOptions;
 		for (let i = 0, len = data.length; i < len;) {
 			const pathIndex = i++;
 			const contentIndex = i++;
@@ -252,15 +253,15 @@ export class Compiler {
 	 * @param { string[] } files				- Path to files to parse
 	 * @param { string[] } contextEntities		- Additional entities added by user
 	 */
-	_parse(files: string[], contextEntities: Set<string>) {
-		return parseSchema(this, this.#program, files, contextEntities);
+	_parse(files: string[], contextEntities: Set<string>, jsDocAnnotations: Map<string, JsDocAnnotationMethod>) {
+		return parseSchema(this, this.#program, files, contextEntities, jsDocAnnotations);
 	}
 
 	/**
 	 * Format parsed entities
 	 */
 	_format(data: ReturnType<typeof parseSchema>, parseOptions: ResolvedPattern, scalars: ScalarParsers) {
-		return format(this, this.#compilerOptions, data, parseOptions, scalars);
+		return format(this, this._compilerOptions, data, parseOptions, scalars);
 	}
 
 	/**
@@ -347,3 +348,6 @@ export class Compiler {
 		return result;
 	}
 }
+
+
+export type CallCacheExprMap = Map<ts.CallExpression | ts.MethodDeclaration | ts.FunctionDeclaration, (...args: any[]) => any>;

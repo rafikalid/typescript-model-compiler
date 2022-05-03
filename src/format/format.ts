@@ -1,8 +1,9 @@
 import { ResolvedPattern } from "@compiler/resolve-patterns";
 import { Kind } from "@parser/kind";
-import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Decorator, JsDocTag, Annotation } from "@parser/model";
+import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Annotation } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
+import { JsDocAnnotationMethod } from "tt-model";
 import ts from "typescript";
 import { Compiler } from "..";
 import { FormattedField, FormattedFieldType, FormattedMethod, FormattedParamNode, FormattedRootNode } from "./model";
@@ -43,23 +44,22 @@ function _format(
 	const ROOT_CODE: ts.Statement[] = [];
 	data.forEach(function (entity) {
 		try {
-
 			if (entity == null) return;
 			const entityName = entity.name;
 			if (result.has(entityName)) return; // Entity mapped twice
 			// Compile jsDoc
 			const jsDoc = _compileJsDoc(entity.jsDoc);
 			let formattedEntity: FormattedRootNode;
-			// Before and after
-			const annotations = _groupAnnotations((entity as any).annotations, entity.jsDocTags);
 			//* Apply annotations
-			let codeBefore: ts.Statement[] | undefined;
-			let codeAfter: ts.Statement[] | undefined;
-			if (annotations != null) {
-				codeBefore = [];
-				codeAfter = [];
-				annotations.forEach(function (annotation, annotationName) {
+			let { before: codeBefore, after: codeAfter } = _applyAnnotations(entity.annotations);
+			// Decorator annotations
+			const decorators = (entity as any).decorators as Annotation[];
+			if (decorators != null) {
+				codeBefore ??= [];
+				codeAfter ??= [];
+				decorators.forEach(function (annotation, annotationName) {
 					// Get annotation 
+					console.log('====> Annotation', annotationName, annotation);
 				});
 			}
 			//TODO
@@ -71,7 +71,6 @@ function _format(
 						kind: Kind.SCALAR,
 						name: entityName,
 						jsDoc,
-						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						// Fields
@@ -92,7 +91,6 @@ function _format(
 						kind: Kind.ENUM,
 						name: entityName,
 						jsDoc,
-						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						members: entity.members.map(member => ({
@@ -111,7 +109,6 @@ function _format(
 						kind: Kind.LIST,
 						name: entityName,
 						jsDoc,
-						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						type: _resolveReference(entity.type)
@@ -123,7 +120,6 @@ function _format(
 						kind: Kind.OBJECT,
 						name: entityName,
 						jsDoc,
-						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						fields: Array.from(entity.fields.values()).map(_formatField)
@@ -137,7 +133,6 @@ function _format(
 						kind: Kind.UNION,
 						name: entityName,
 						jsDoc,
-						annotations,
 						before: codeBefore,
 						after: codeAfter,
 						tsNodes: entity.tsNodes,
@@ -198,17 +193,15 @@ function _format(
 		if (type == null && ignoreType === true)
 			throw `Missing type for ${isInput ? 'input' : 'output'} field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
 		// Before and after
-		const annotations = _groupAnnotations(field.annotations, field.jsDocTags);
-		const codeBefore: ts.Statement[] = [];
-		const codeAfter: ts.Statement[] = [];
+		let { before: codeBefore, after: codeAfter } = _applyAnnotations(field.annotations);
 		// Return
 		return {
 			kind: Kind.FIELD,
 			name: field.name,
+			alias: field.alias ?? field.name,
 			before: codeBefore,
 			after: codeAfter,
 			jsDoc: _compileJsDoc(field.jsDoc),
-			annotations,
 			required: field.required,
 			className: field.className,
 			idx: field.idx,
@@ -265,6 +258,44 @@ function _format(
 			throw (`Unexpected type "${Kind[(type as any).kind]}" at: ${getNodePath((type as any).tsNodes)}`)
 		}
 	}
+	/** Apply annotations */
+	function _applyAnnotations(annotations: Annotation[]) {
+		let before: ts.Statement[] | undefined;
+		let after: ts.Statement[] | undefined;
+		if (annotations.length > 0) {
+			before = [];
+			after = [];
+			// Group annotations
+			const jsDocGrouped = new Map<string, Annotation[]>();
+			const decoGrouped = new Map<JsDocAnnotationMethod, Annotation[]>();
+			for (let i = 0, len = annotations.length; i < len; ++i) {
+				const a = annotations[i];
+				if (a.isFromPackage || a.kind === Kind.JSDOC_TAG) {
+					const r = jsDocGrouped.get(a.name);
+					if (r == null) jsDocGrouped.set(a.name, [a]);
+					else r.push(a);
+				} else if (a.kind === Kind.DECORATOR) {
+					const r = decoGrouped.get(a.handler);
+					if (r == null) decoGrouped.set(a.handler, [a]);
+					else r.push(a);
+				} else throw new Error(`Unexpected annotation kind: ${a.kind} at ${getNodePath(a.tsNode)}`);
+			}
+			// Exec jsDoc and package annotations
+			jsDocGrouped.forEach(_applyAnnotation);
+			// Exec Decorators
+			decoGrouped.forEach(_applyAnnotation);
+		}
+		return {
+			before,
+			after
+		}
+		/** Apply each annotation */
+		function _applyAnnotation(annotations: Annotation[]) {
+			// TODO apply annotations
+			console.log('Apply annotations:', annotations);
+		}
+	}
+
 }
 
 
@@ -297,25 +328,3 @@ function _compileJsDoc(arr: string[]): string | undefined {
 		});
 	return result.length ? result.join("\n") : undefined;
 }
-/** Format annotations */
-function _groupAnnotations(decorators: Decorator[] | undefined, jsDocTags: JsDocTag[]): Map<string, Annotation[]> | undefined {
-	if ((decorators == null || decorators.length === 0) && jsDocTags.length === 0) return;
-	const result: Map<string, Annotation[]> = new Map();
-	// Add annotations
-	if (decorators != null)
-		for (let i = 0, len = decorators.length; i < len; ++i) {
-			const a = decorators[i];
-			const r = result.get(a.name);
-			if (r == null) result.set(a.name, [a]);
-			else r.push(a);
-		}
-	// Add jsDoc tags
-	for (let i = 0, len = jsDocTags.length; i < len; ++i) {
-		const a = jsDocTags[i];
-		const r = result.get(a.name);
-		if (r == null) result.set(a.name, [a]);
-		else r.push(a);
-	}
-	return result;
-}
-

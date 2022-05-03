@@ -1,9 +1,11 @@
+import { JSDOC_ANNOTATIONS } from "@src/config";
+import { _getCallExpression } from "@src/format/utils";
 import { getNodePath } from "@utils/node-path";
-import type { StaticValue } from 'tt-model';
+import type { JsDocAnnotationMethod, StaticValue } from 'tt-model';
 import ts from "typescript";
 import type { Compiler } from "..";
 import { Kind } from "./kind";
-import { Decorator, EnumMemberNode, FieldType, ImplementedEntity, JsDocTag, ListNode, MethodNode, Node, ObjectNode, ParamNode, ParamType, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
+import { Annotation, EnumMemberNode, FieldType, ImplementedEntity, ListNode, MethodNode, Node, ObjectNode, ParamNode, ParamType, RefNode, ResolverClassNode, RootNode, ScalarNode, StaticValueResponse, UnionNode, ValidatorClassNode } from "./model";
 import { cleanType, doesTypeHaveNull, _escapeStr } from "./utils";
 
 const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
@@ -11,7 +13,13 @@ const LITERAL_ENTITY_DEFAULT_NAME = 'NAMELESS';
 /** 
  * Parse schema
  */
-export function parseSchema(compiler: Compiler, program: ts.Program, files: readonly string[], contextEntities: Set<string>) {
+export function parseSchema(
+	compiler: Compiler,
+	program: ts.Program,
+	files: readonly string[],
+	contextEntities: Set<string>,
+	jsDocAnnotations: Map<string, JsDocAnnotationMethod>
+) {
 	//* Prepare
 	const typeChecker = program.getTypeChecker();
 	const tsNodePrinter = ts.createPrinter({
@@ -54,18 +62,20 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 			let ignoreReturnedTypes = QItem.ignoreReturnedTypes;
 			//* Parse jsDoc
 			const jsDoc: string[] = tsNodeSymbol?.getDocumentationComment(typeChecker).map(e => e.text) ?? [];
-			let jsDocTags: JsDocTag[] = []; // Map<annotationName, annotationValue>
+			let annotations: Annotation[] = []; // Map<annotationName, annotationValue>
 			const foundJsDocTags = tsNodeSymbol?.getJsDocTags();
 			let hasInputTag = false;
 			let hasOutputTag = false;
 			let hasEntityTag = false;
 			let hasResolversTag = false;
+			let fieldAlias: string | undefined;
 			if (foundJsDocTags != null && foundJsDocTags.length > 0) {
 				for (let i = 0, len = foundJsDocTags.length; i < len; ++i) {
 					const tag = foundJsDocTags[i];
 					const tagText = tag.text?.map(c => c.text.trim()).join("\n");
+					const tagName = tag.name;
 					// Ignore
-					switch (tag.name) {
+					switch (tagName) {
 						case 'ignore':
 							continue rootLoop;
 						case 'input':
@@ -78,36 +88,41 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							break;
 						case 'entity': hasEntityTag = true; break;
 						case 'resolvers': hasResolversTag = true; break;
+						case 'alias': fieldAlias = tagText; break;
 					}
 					// Save tag
-					jsDocTags.push({
-						kind: Kind.JSDOC_TAG,
-						name: tag.name,
-						params: tagText ? [{
-							name: tagText,
-							nativeName: undefined,
-							targetTsNode: undefined,
-							tsNode: tsNode,
-							value: undefined
-						}] : [] //compiler._parseJsDocTagArgs(tagText)
-					});
+					const handler = jsDocAnnotations.get(tagName);
+					if (handler != null)
+						annotations.push({
+							kind: Kind.JSDOC_TAG,
+							name: tagName,
+							params: tagText ? [{
+								name: tagText,
+								nativeName: undefined,
+								targetTsNode: undefined,
+								tsNode: tsNode,
+								value: undefined
+							}] : [], //compiler._parseJsDocTagArgs(tagText)
+							isFromPackage: false,
+							tsNode,
+							handler
+						});
+					else if (!JSDOC_ANNOTATIONS.has(tagName))
+						throw `Unknown jsDoc tag "${tagName}" at: ${getNodePath(tsNode)}`;
 				}
 			}
 			//* Parse decorators
-			const annotations: Decorator[] = [];
-			const decorators = tsNode.decorators;
-			if (decorators != null) for (let j = 0, len = decorators.length ?? 0; j < len; ++j) {
-				const decorator = decorators[j];
+			const tsDecorators = tsNode.decorators;
+			if (tsDecorators != null) for (let j = 0, len = tsDecorators.length ?? 0; j < len; ++j) {
+				const decorator = tsDecorators[j];
 				const expr = decorator.expression;
 				let identifier: ts.Expression;
 				let args: StaticValueResponse[] = [];
 				if (ts.isCallExpression(expr)) {
 					identifier = expr.expression;
-					console.log('--ANNOTATION->', _getNodeName(identifier));
 					expr.arguments?.forEach(arg => {
 						args.push(_getStaticValue(arg));
 					});
-					console.log("\t", args);
 				} else {
 					identifier = expr;
 				}
@@ -182,17 +197,15 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					annotations.push({
 						kind: Kind.DECORATOR,
 						name: annotationName,
-						fileName: decoVar.getSourceFile().fileName,
 						isFromPackage,
 						params: args,
 						tsNode: tsNode,
-						handler: fxHandler
+						handler: _getCallExpression(fxHandler, typeChecker, compiler._cacheCallExpression, compiler._compilerOptions)
 					});
 				} else if (isFromPackage) {
 					annotations.push({
 						kind: Kind.DECORATOR,
 						name: annotationName,
-						fileName: decoVar.getSourceFile().fileName,
 						isFromPackage,
 						params: args,
 						tsNode: tsNode
@@ -248,7 +261,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								inherit: implemented.entities,
 								isClass,
 								jsDoc,
-								jsDocTags,
 								tsNodes: [entityNode],
 								parentsName: undefined
 							};
@@ -256,11 +268,10 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						} else if (entity.kind !== Kind.OBJECT) {
 							throw new Error(`Duplicated entity ${entityName} as Object and ${Kind[entity.kind]} at ${getNodePath(entityNode)} and ${getNodePath(entity.tsNodes)}`);
 						} else {
-							entity.annotations.push(...annotations);
 							entity.jsDoc.push(...jsDoc);
 							entity.inherit.push(...implemented.entities);
 							entity.tsNodes.push(entityNode);
-							entity.jsDocTags.push(...jsDocTags);
+							entity.annotations.push(...annotations);
 						}
 					} else {
 						let kind: Kind;
@@ -305,7 +316,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							name: entityName,
 							isInput,
 							jsDoc,
-							jsDocTags,
 							tsNodes: [entityNode],
 							entities: implemented.nodes,
 							annotations,
@@ -394,9 +404,9 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							isInput,
 							annotations,
 							jsDoc,
-							jsDocTags,
 							className,
 							name: entityName,
+							alias: fieldAlias,
 							tsNodes: [propertyNode],
 							method: undefined,
 							required: !isOptional,
@@ -408,10 +418,15 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					} else {
 						if (field.method != null && isMethod)
 							throw `Duplicate ${isInput ? 'validator' : 'resolver'} for ${parentNode.name}.${entityName} at ${getNodePath(field.method.tsNode)} and ${getNodePath(tsNode)}`;
-						field.annotations.push(...annotations);
 						field.jsDoc.push(...jsDoc);
 						field.tsNodes.push(tsNode);
-						field.jsDocTags.push(...jsDocTags);
+						field.annotations.push(...annotations);
+						// Field alias
+						if (fieldAlias != null) {
+							if (field.alias != null && field.alias !== fieldAlias)
+								throw `Field ${field.parent.name}.${field.name} could not have two aliases "${field.alias}" and "${fieldAlias}" at ${getNodePath(tsNode)}`;
+							field.alias = fieldAlias;
+						}
 					}
 					//* Method
 					let method: MethodNode | undefined;
@@ -480,7 +495,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						required: !isOptional,
 						isInput,
 						jsDoc,
-						jsDocTags,
+						annotations,
 						tsNodes: [paramNode],
 						type: undefined,
 						parent: parentNode,
@@ -544,7 +559,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							kind: Kind.REF,
 							isInput,
 							jsDoc,
-							jsDocTags,
+							annotations,
 							name: typeName,
 							tsNodes: [parentTsNode ?? tsNode],
 							isAsync: cleanResult.hasPromise,
@@ -593,13 +608,12 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 										//* Resolve generics
 										const entity: ObjectNode = {
 											kind: Kind.OBJECT,
-											annotations: [],
+											annotations: [], //TODO get from original tag
 											fields: new Map(),
 											inherit: [],
 											isClass: false,
 											isInput,
 											jsDoc: [], //TODO get from original entity
-											jsDocTags: [], //TODO get from original tag
 											name: typeName,
 											tsNodes: [parentTsNode ?? tsNode],// TODO get from original entity
 											parentsName: undefined
@@ -660,7 +674,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						kind: Kind.REF,
 						isInput,
 						jsDoc,
-						jsDocTags,
+						annotations,
 						name: _getNodeName(tsNode),
 						tsNodes: [tsNode],
 						isAsync: false,
@@ -681,7 +695,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							kind: Kind.LIST,
 							isInput,
 							jsDoc,
-							jsDocTags,
+							annotations,
 							required: !isOptional,
 							tsNodes: [tsNode],
 							name: entityName,
@@ -713,7 +727,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 							isFromPackage: false,
 							isInput,
 							jsDoc,
-							jsDocTags,
+							annotations,
 							name: entityName,
 							tsNodes: [tsNode]
 						};
@@ -741,7 +755,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						name: entityName,
 						isInput,
 						jsDoc,
-						jsDocTags,
+						annotations,
 						tsNodes: [tsNode],
 						members: []
 					};
@@ -775,7 +789,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						value,
 						jsDoc: jsDoc,
 						isInput,
-						jsDocTags,
+						annotations,
 						tsNodes: [tsNode]
 					};
 					ENUM_MEMBERS.set(fullName, value);
@@ -795,14 +809,13 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					const name = entityName ?? LITERAL_ENTITY_DEFAULT_NAME;
 					const entity: ObjectNode = {
 						kind: Kind.OBJECT,
-						annotations,
 						name: name,
 						fields: new Map(),
 						inherit: [],
 						isInput,
 						isClass: false,
 						jsDoc,
-						jsDocTags: jsDocTags ?? [],
+						annotations,
 						tsNodes: [tsNode],
 						parentsName: undefined
 					};
@@ -811,7 +824,7 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 						name: name,
 						isInput,
 						jsDoc,
-						jsDocTags,
+						annotations,
 						tsNodes: [tsNode],
 						isAsync: false,
 						isFromPackage: false
@@ -949,7 +962,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 					} else if (entity.kind !== Kind.OBJECT)
 						errors.push(`Could not add ${isResolvers ? 'resolvers' : 'validators'} to "${node.name}" as ${Kind[entity.kind]} at ${getNodePath(entity.tsNodes)}`);
 					else {
-						entity.jsDocTags.push(...helper.jsDocTags);
 						entity.annotations.push(...helper.annotations);
 						// Merge fields
 						const fields = entity.fields;
@@ -963,8 +975,6 @@ export function parseSchema(compiler: Compiler, program: ts.Program, files: read
 								targetField.method = field.method;
 								targetField.jsDoc.push(...field.jsDoc);
 								targetField.annotations.push(...field.annotations);
-								// jsDoc tags
-								targetField.jsDocTags.push(...field.jsDocTags);
 							}
 						});
 					}

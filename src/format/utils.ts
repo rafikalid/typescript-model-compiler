@@ -1,5 +1,7 @@
+import { getNodePath } from '@utils/node-path';
 import ts from 'typescript';
 import { runInNewContext } from 'vm';
+import { CallCacheExprMap } from '..';
 
 /**
  * Parse function from text to JS
@@ -69,10 +71,25 @@ export function _splitAccessPath(path: string) {
 
 /** Get and parse call expression from node */
 export function _getCallExpression(
-	prop: ts.Node,
+	fxNode: ts.Node,
 	typeChecker: ts.TypeChecker,
-	cacheCall: Map<ts.CallExpression | ts.FunctionDeclaration | ts.MethodDeclaration, (...args: any[]) => any>
+	cacheCall: CallCacheExprMap,
+	compilerOptions: ts.CompilerOptions
 ): (...args: any[]) => any {
-	// TODO
-	throw `Expected jsDoc annotation "${s.name}" to be a method. Got "${ts.SyntaxKind[prop.kind]}" at: ${getNodePath(prop)}`;
+	if (
+		ts.isMethodDeclaration(fxNode) ||
+		ts.isFunctionDeclaration(fxNode) ||
+		ts.isCallExpression(fxNode)
+	) {
+		let fx = cacheCall.get(fxNode);
+		if (fx == null) {
+			fx = _resolveHandler(fxNode, compilerOptions);
+			if (fx == null)
+				throw `Could not compile handler at: ${getNodePath(fxNode)}`;
+			cacheCall.set(fxNode, fx);
+		}
+		return fx;
+	} else {
+		throw `Expected call expression. Got "${ts.SyntaxKind[fxNode.kind]}" at: ${getNodePath(fxNode)}`;
+	}
 }
