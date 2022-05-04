@@ -1,6 +1,6 @@
 import { Kind } from "./kind";
 import ts from "typescript";
-import type { JsDocAnnotationMethod, StaticValue } from 'tt-model';
+import type { AnnotationArg, JsDocAnnotationMethod } from 'tt-model';
 
 
 /** Nodes */
@@ -230,13 +230,7 @@ export interface AnyNode {
 
 
 /** Static value response */
-export interface StaticValueResponse {
-	/** Current name */
-	name: string
-	/** Original name */
-	nativeName: string | undefined
-	/** Static value */
-	value: StaticValue
+export interface StaticValueResponse extends AnnotationArg {
 	/** Ts node */
 	tsNode: ts.Node
 	/** Target ts node */

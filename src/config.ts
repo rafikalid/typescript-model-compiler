@@ -1,9 +1,13 @@
 /** Package name */
 export const PACKAGE_NAME = 'tt-model';
 
+/** Defined jsDoc Annotation */
+export const PACKAGE_JSDOC_TAGS = new Set(['assert', 'orderBy']);
+
 /** JsDoc Annotations */
-export const JSDOC_ANNOTATIONS = new Set([
-	'deprecated', 'entity', 'override', 'abstract', 'access', 'alias', 'argument', 'async',
+export const JSDOC_TAGS = new Set([
+	'entity', 'input', 'output', 'resolvers', 'optionalInput',
+	'deprecated', 'override', 'abstract', 'access', 'alias', 'argument', 'async',
 	'augments', 'author', 'borrows', 'callback', 'classdesc', 'class ',
 	'constant', 'constructor', 'constructs', 'copyright', 'default', 'description', 'emits',
 	'enum', 'event', 'example', 'exports', 'extends', 'external', 'field', 'file', 'fileoverview',

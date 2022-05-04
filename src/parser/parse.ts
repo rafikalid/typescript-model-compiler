@@ -1,4 +1,4 @@
-import { JSDOC_ANNOTATIONS } from "@src/config";
+import { JSDOC_TAGS, PACKAGE_JSDOC_TAGS } from "@src/config";
 import { _getCallExpression } from "@src/format/utils";
 import { getNodePath } from "@utils/node-path";
 import type { JsDocAnnotationMethod, StaticValue } from 'tt-model';
@@ -69,6 +69,8 @@ export function parseSchema(
 			let hasEntityTag = false;
 			let hasResolversTag = false;
 			let fieldAlias: string | undefined;
+			/** if is optional when input */
+			let isOptionalInput = false;
 			if (foundJsDocTags != null && foundJsDocTags.length > 0) {
 				for (let i = 0, len = foundJsDocTags.length; i < len; ++i) {
 					const tag = foundJsDocTags[i];
@@ -89,12 +91,14 @@ export function parseSchema(
 						case 'entity': hasEntityTag = true; break;
 						case 'resolvers': hasResolversTag = true; break;
 						case 'alias': fieldAlias = tagText; break;
+						case 'optionalInput': isOptionalInput = isInput; break;
 					}
 					// Save tag
 					const handler = jsDocAnnotations.get(tagName);
 					if (handler != null)
 						annotations.push({
 							kind: Kind.JSDOC_TAG,
+							isFromPackage: false,
 							name: tagName,
 							params: tagText ? [{
 								name: tagText,
@@ -103,11 +107,24 @@ export function parseSchema(
 								tsNode: tsNode,
 								value: undefined
 							}] : [], //compiler._parseJsDocTagArgs(tagText)
-							isFromPackage: false,
 							tsNode,
 							handler
 						});
-					else if (!JSDOC_ANNOTATIONS.has(tagName))
+					else if (PACKAGE_JSDOC_TAGS.has(tagName))
+						annotations.push({
+							kind: Kind.JSDOC_TAG,
+							isFromPackage: true,
+							name: tagName,
+							params: tagText ? [{
+								name: tagText,
+								nativeName: undefined,
+								targetTsNode: undefined,
+								tsNode: tsNode,
+								value: undefined
+							}] : [],
+							tsNode
+						});
+					else if (!JSDOC_TAGS.has(tagName))
 						throw `Unknown jsDoc tag "${tagName}" at: ${getNodePath(tsNode)}`;
 				}
 			}
@@ -396,7 +413,7 @@ export function parseSchema(
 
 					// Add field
 					let field = parentNode.fields.get(entityName);
-					const isOptional = propertyNode.questionToken == null || propertyNode.type == null ||
+					const isOptional = isOptionalInput || propertyNode.questionToken == null || propertyNode.type == null ||
 						doesTypeHaveNull(typeChecker, typeChecker.getTypeFromTypeNode(propertyNode.type));
 					if (field == null) {
 						field = {
@@ -487,7 +504,7 @@ export function parseSchema(
 					if (parentNode == null || parentNode.kind != Kind.METHOD)
 						throw `Expected parentNode for PARAM as METHOD or FUNCTION. get ${parentNode == null ? 'undefined' : Kind[parentNode.kind]} at: ${getNodePath(tsNode)}`;
 					const paramNode = tsNode as ts.ParameterDeclaration;
-					const isOptional = paramNode.questionToken != null || paramNode.type == null ||
+					const isOptional = isOptionalInput || paramNode.questionToken != null || paramNode.type == null ||
 						doesTypeHaveNull(typeChecker, typeChecker.getTypeFromTypeNode(paramNode.type));
 					const param: ParamNode = {
 						kind: Kind.PARAM,

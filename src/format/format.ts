@@ -1,11 +1,13 @@
 import { ResolvedPattern } from "@compiler/resolve-patterns";
 import { Kind } from "@parser/kind";
-import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Annotation } from "@parser/model";
+import { AnyNode, FieldNode, ListNode, Node, ParamNode, ParamType, RefNode, RootNode, StaticValueNode, Annotation, StaticValueResponse, ObjectNode } from "@parser/model";
 import type { parseSchema } from "@parser/parse";
 import { getNodePath } from "@utils/node-path";
-import { JsDocAnnotationMethod } from "tt-model";
+import { JsDocAnnotationMethod, JsDocAnnotationMethodResult } from "tt-model";
 import ts from "typescript";
 import { Compiler } from "..";
+import { _convertAnnotation } from "./element";
+import { JsDocUtilsImp } from "./jsDoc-utils";
 import { FormattedField, FormattedFieldType, FormattedMethod, FormattedParamNode, FormattedRootNode } from "./model";
 import { ScalarParser, ScalarParsers, _resolveScalars } from "./resolve-scalars";
 
@@ -35,6 +37,8 @@ function _format(
 	isInput: boolean
 ) {
 	const result: Map<string, FormattedRootNode> = new Map();
+	/** Annotation handler result map */
+	const AnnotationHandlerMap = new Map<JsDocAnnotationMethod, JsDocAnnotationMethodResult>();
 	//* format entities
 	const errors: string[] = [];
 	/**
@@ -51,7 +55,7 @@ function _format(
 			const jsDoc = _compileJsDoc(entity.jsDoc);
 			let formattedEntity: FormattedRootNode;
 			//* Apply annotations
-			let { before: codeBefore, after: codeAfter } = _applyAnnotations(entity.annotations);
+			let { before: codeBefore, after: codeAfter } = _applyAnnotations(entity);
 			// Decorator annotations
 			const decorators = (entity as any).decorators as Annotation[];
 			if (decorators != null) {
@@ -193,7 +197,7 @@ function _format(
 		if (type == null && ignoreType === true)
 			throw `Missing type for ${isInput ? 'input' : 'output'} field "${field.parent.name}.${field.name}" at ${getNodePath(field.tsNodes)}`;
 		// Before and after
-		let { before: codeBefore, after: codeAfter } = _applyAnnotations(field.annotations);
+		let { before: codeBefore, after: codeAfter } = _applyAnnotations(field);
 		// Return
 		return {
 			kind: Kind.FIELD,
@@ -259,7 +263,8 @@ function _format(
 		}
 	}
 	/** Apply annotations */
-	function _applyAnnotations(annotations: Annotation[]) {
+	function _applyAnnotations(node: FieldNode | RootNode) {
+		const annotations = node.annotations;
 		let before: ts.Statement[] | undefined;
 		let after: ts.Statement[] | undefined;
 		if (annotations.length > 0) {
@@ -291,13 +296,64 @@ function _format(
 		}
 		/** Apply each annotation */
 		function _applyAnnotation(annotations: Annotation[]) {
-			// TODO apply annotations
-			console.log('Apply annotations:', annotations);
+			const firstAnnotation = annotations[0]!;
+			try {
+				if (firstAnnotation.isFromPackage) {
+					switch (firstAnnotation.name) {
+						case 'assert':
+							//TODO assert
+							console.log('>> Assert: ', firstAnnotation.params);
+							break;
+						case 'orderBy':
+							//TODO Order by
+							console.log('>> OrderBy: ', firstAnnotation.params);
+							break;
+						default:
+							throw `Unexpected package tag "${firstAnnotation.name}"`;
+					}
+				} else {
+					// Are grouped by handler
+					const result = _execHandler(firstAnnotation.handler, firstAnnotation.name);
+					// parse JSDoc arguments
+					if (result.jsDocArgParser != null && firstAnnotation.kind === Kind.JSDOC_TAG) {
+						for (let i = 0, len = annotations.length; i < len; ++i) {
+							const a = annotations[i];
+							if (a.params.length > 1)
+								throw `Unexpected param count for jsDoc tag "${a.name}" at ${getNodePath(a.tsNode)}`;
+							a.params = result.jsDocArgParser(a.params[0]?.name ?? '') as StaticValueResponse[];
+						}
+					}
+					// Exec
+					const r = result.exec(_convertAnnotation(node, data, annotations), JsDocUtilsImp);
+					if (r.before != null) _appendCode(before!, r.before);
+					if (r.after != null) _appendCode(after!, r.after);
+				}
+			} catch (err: any) {
+				errors.push(`Error when executing annotation "${firstAnnotation.name}" at: ${getNodePath(firstAnnotation.tsNode)}. Caused by: ${err?.stack ?? err}`);
+			}
 		}
 	}
-
+	/** Get annotation handler result */
+	function _execHandler(handler: JsDocAnnotationMethod, annotationName: string) {
+		let result = AnnotationHandlerMap.get(handler);
+		if (result == null) {
+			result = handler(JsDocUtilsImp, annotationName);
+			// Add root code (like imports)
+			result.root && _appendCode(ROOT_CODE, result.root);
+			// Map handler
+			AnnotationHandlerMap.set(handler, result);
+		}
+		return result;
+	}
+	/** Append root, before or after code */
+	function _appendCode(target: ts.Statement[], code: string | ts.Statement | ts.Statement[]): void {
+		if (typeof code === 'string')
+			target.push(ts.factory.createExpressionStatement(ts.factory.createIdentifier(code)));
+		else if (Array.isArray(code))
+			target.push(...code);
+		else target.push(code);
+	}
 }
-
 
 // /** Sort jsDoc */
 // const sortJsDocKeywords = [

@@ -1,15 +1,15 @@
 import { Kind } from "@parser/kind";
-import { FieldNode, ObjectNode, ParamType, RootNode, Node, MethodNode, FieldType, EnumMemberNode, ValidatorClassNode, ResolverClassNode } from "@parser/model";
+import { FieldNode, ObjectNode, ParamType, RootNode, Node, MethodNode, FieldType, EnumMemberNode, ValidatorClassNode, ResolverClassNode, Annotation as CompilerAnnotation } from "@parser/model";
 import { Annotation, Element, ObjectElement, PropertyElement } from "tt-model";
 import { _splitAccessPath } from "./utils";
 
 /** Element */
-abstract class _Element<T extends FieldNode | ObjectNode> implements Element {
+abstract class _Element<T extends FieldNode | RootNode> implements Element {
 	protected _elNode: T;
-	protected _mapNodes: Map<string, RootNode>;
+	protected _mapNodes: Map<string, RootNode | undefined>;
 	name: string
 
-	constructor(node: T, mapNodes: Map<string, RootNode>) {
+	constructor(node: T, mapNodes: Map<string, RootNode | undefined>) {
 		this.name = node.name;
 		this._elNode = node;
 		this._mapNodes = mapNodes;
@@ -17,45 +17,25 @@ abstract class _Element<T extends FieldNode | ObjectNode> implements Element {
 
 	/** Has annotation */
 	hasAnnotation(name: string) {
-		const field = this._elNode;
-		return field.annotations.some(a => a.name === name) ||
-			field.jsDocTags.some(a => a.name === name);
+		return this._elNode.annotations.some(a => a.name === name);
 	}
 	/** Annotations */
 	get annotations(): Annotation[] {
-		const field = this._elNode;
-		const jsDocTags: Annotation[] = field.jsDocTags.map(a => ({
-			type: 'JSDOC_TAG',
+		return this._elNode.annotations.map(a => ({
+			type: a.kind === Kind.DECORATOR ? 'DECORATOR' : 'JSDOC_TAG',
 			name: a.name,
 			args: a.params,
 			element: this as unknown as PropertyElement
 		}));
-		const annotations: Annotation[] = field.annotations.map(a => ({
-			type: 'DECORATOR',
-			name: a.name,
-			args: a.params,
-			element: this as unknown as PropertyElement
-		}));
-		return jsDocTags.concat(annotations);
 	}
 
 	/** Get annotation */
 	getAnnotation(name: string) {
 		const result: Annotation[] = [];
-		const field = this._elNode;
-		field.jsDocTags.forEach(a => {
+		this._elNode.annotations.forEach(a => {
 			if (a.name === name)
 				result.push({
-					type: 'JSDOC_TAG',
-					name: a.name,
-					args: a.params,
-					element: this as unknown as PropertyElement
-				});
-		});
-		field.annotations.forEach(a => {
-			if (a.name === name)
-				result.push({
-					type: 'DECORATOR',
+					type: a.kind === Kind.DECORATOR ? 'DECORATOR' : 'JSDOC_TAG',
 					name: a.name,
 					args: a.params,
 					element: this as unknown as PropertyElement
@@ -137,7 +117,7 @@ export class PropertyElementImp extends _Element<FieldNode> implements PropertyE
 	/** Alias to typeName */
 	parentTypeName: string
 
-	constructor(field: FieldNode, mapNodes: Map<string, RootNode>) {
+	constructor(field: FieldNode, mapNodes: Map<string, RootNode | undefined>) {
 		super(field, mapNodes);
 		this.type = field.method ? 'Method' : 'Field';
 		this.required = field.required;
@@ -189,10 +169,10 @@ export class PropertyElementImp extends _Element<FieldNode> implements PropertyE
 /**
  * Object element
  */
-export class ObjectElementImp extends _Element<ObjectNode> implements ObjectElement {
+export class ObjectElementImp extends _Element<RootNode> implements ObjectElement {
 	type: 'object' = 'object'
 
-	constructor(obj: ObjectNode, mapNodes: Map<string, RootNode>) {
+	constructor(obj: RootNode, mapNodes: Map<string, RootNode | undefined>) {
 		super(obj, mapNodes);
 	}
 
@@ -206,4 +186,19 @@ export class ObjectElementImp extends _Element<ObjectNode> implements ObjectElem
 	has(path: string): boolean {
 		return this._resolvePath(this._elNode, path) != null;
 	}
+}
+
+/** Convert compiler annotation model to tt-model */
+export function _convertAnnotation(
+	p: RootNode | FieldNode,
+	mapNodes: Map<string, RootNode | undefined>,
+	annotations: CompilerAnnotation[]
+): Annotation[] {
+	const el = p.kind === Kind.FIELD ? new PropertyElementImp(p, mapNodes) : new ObjectElementImp(p, mapNodes);
+	return annotations.map(a => ({
+		type: a.kind === Kind.DECORATOR ? 'DECORATOR' : 'JSDOC_TAG',
+		name: a.name,
+		args: a.params,
+		element: el
+	}));
 }
